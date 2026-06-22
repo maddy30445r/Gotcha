@@ -1,0 +1,4 @@
+.env
+sarvam_output/
+gemini_output/
+__pycache__/
