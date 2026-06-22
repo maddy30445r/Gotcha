@@ -1,4 +1,7 @@
 .env
 sarvam_output/
 gemini_output/
+pipeline_output/
+recordings/
 __pycache__/
+mac_recorder/.build/

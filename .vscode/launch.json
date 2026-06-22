@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:dev meeting tool}/mac_recorder",
+            "name": "Debug mac-recorder (mac_recorder)",
+            "target": "mac-recorder",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug mac-recorder (mac_recorder)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:dev meeting tool}/mac_recorder",
+            "name": "Release mac-recorder (mac_recorder)",
+            "target": "mac-recorder",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release mac-recorder (mac_recorder)"
+        }
+    ]
+}
