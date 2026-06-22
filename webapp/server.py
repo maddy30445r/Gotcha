@@ -180,9 +180,11 @@ def get_meeting(base: str):
     transcript_path = os.path.join(OUT_DIR, f"{base}.transcript.json")
 
     report_html = None
+    report_md = None
     if os.path.exists(report_path):
         with open(report_path, encoding="utf-8") as f:
-            report_html = _render_report(f.read())
+            report_md = f.read()
+        report_html = _render_report(report_md)
 
     transcript = None
     if os.path.exists(transcript_path):
@@ -194,7 +196,8 @@ def get_meeting(base: str):
 
     return {
         "base": base,
-        "report_html": report_html,
+        "report_md": report_md,        # raw markdown — frontend renders structured cards
+        "report_html": report_html,    # server-rendered fallback
         "transcript": transcript,
         "tracks": _tracks_for(base),
         "your_name": pipeline.YOUR_NAME,

@@ -1,22 +1,26 @@
 "use strict";
 
-// ---- state ----------------------------------------------------------------
+/* ── state ───────────────────────────────────────────────────────────── */
 let current = null;       // { base, transcript, tracks, your_name }
 let recording = false;
 let timerId = null;
-let pollId = null;        // active job poll
+let pollId = null;
+let trackMode = "mix";    // mix | mic (You) | system (Them)
+let lastClip = null;      // { ts, chipEl }
 const PROCESSING = new Set(["queued", "recording", "transcribing", "interpreting"]);
 
-const $ = (sel) => document.querySelector(sel);
+const $ = (s) => document.querySelector(s);
 const listEl = $("#meeting-list");
 const reportEl = $("#report");
 const recBtn = $("#rec-btn");
 const recTimer = $("#rec-timer");
 const recName = $("#rec-name");
+const recText = recBtn.querySelector(".rec-text");
 const player = $("#player");
 const playerLabel = $("#player-label");
+const playerEq = $("#player-eq");
 
-// ---- helpers --------------------------------------------------------------
+/* ── tiny helpers ────────────────────────────────────────────────────── */
 async function api(path, opts) {
   const res = await fetch(path, opts);
   if (!res.ok) {
@@ -26,190 +30,301 @@ async function api(path, opts) {
   }
   return res.status === 204 ? null : res.json();
 }
-
-function fmtTime(s) {
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmtTime = (s) => {
   s = Math.max(0, Math.floor(s));
-  const m = Math.floor(s / 60);
-  return String(m).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+  return String((s / 60) | 0).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+};
+const pillHTML = (ts) =>
+  `<span class="pill" data-ts="${ts}"><span class="pill-rec"></span>${ts}s<span class="pill-play">▶</span></span>`;
+// escape → bold → turn [Ns] citations into receipt pills
+function mdInline(str) {
+  let h = esc(str).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  return h.replace(/\[(\d+(?:\.\d+)?)\s*s\]/g, (_, ts) => pillHTML(ts));
+}
+const stripStars = (s) => s.replace(/^\s*\*\*|\*\*\s*$/g, "").trim();
+const tsIn = (s) => { const m = s.match(/\[(\d+(?:\.\d+)?)\s*s\]/); return m ? m[1] : null; };
+
+/* ── report parser: report_md → structured cards ─────────────────────── */
+function topBullets(body) {
+  const items = []; let cur = null;
+  for (const ln of body.split("\n")) {
+    if (/^[*-]\s+/.test(ln)) { cur = { head: ln.replace(/^[*-]\s+/, ""), subs: [] }; items.push(cur); }
+    else if (/^\s+[*-]\s+/.test(ln) && cur) { cur.subs.push(ln.replace(/^\s+[*-]\s+/, "")); }
+    else if (cur && ln.trim()) {
+      if (cur.subs.length) cur.subs[cur.subs.length - 1] += " " + ln.trim();
+      else cur.head += " " + ln.trim();
+    }
+  }
+  return items;
 }
 
-function stateBadge(state, hasReport) {
-  if (state === "error") return '<span class="badge error">error</span>';
-  if (PROCESSING.has(state)) return `<span class="badge processing">${state}…</span>`;
+function renderSummary(body) {
+  const paras = body.trim().split(/\n\s*\n/).map((p) => `<p>${mdInline(p.trim())}</p>`).join("");
+  return `<div class="summary-prose">${paras}</div>`;
+}
+
+function renderDecode(body) {
+  const items = topBullets(body);
+  if (!items.length) {  // "Nothing implicit — the lead was direct throughout."
+    return `<p class="decode-none">${esc(body.trim())}</p>`;
+  }
+  return items.map((it) => {
+    const ts = tsIn(it.head);
+    let quote = it.head.replace(/\bat\s*\[[^\]]*\]/i, "").replace(/\[[^\]]*\]/, "");
+    quote = stripStars(quote).replace(/^[“"']|[”"']$/g, "").trim();
+    let meaning = "";
+    for (const s of it.subs) {
+      const m = s.match(/^\*\*\s*What.*?meant:?\s*\*\*\s*(.*)/i);
+      if (m) { meaning = m[1]; break; }
+    }
+    if (!meaning && it.subs.length) meaning = it.subs.join(" ").replace(/^\*\*.*?:\*\*\s*/, "");
+    return `<div class="decode-card">
+        <p class="dc-tag">what your lead said</p>
+        <div class="dc-said"><q>${esc(quote)}</q>${ts ? pillHTML(ts) : ""}</div>
+        <p class="dc-arrow">↓ what they really meant</p>
+        <p class="dc-meant">${mdInline(meaning)}</p>
+      </div>`;
+  }).join("");
+}
+
+function renderActions(body) {
+  const items = topBullets(body);
+  if (!items.length) return `<p class="decode-none">${esc(body.trim())}</p>`;
+  const PCLASS = { high: "prio--high", medium: "prio--med", low: "prio--low" };
+  return items.map((it) => {
+    let task = stripStars(it.head), verify = "";
+    const vm = task.match(/\((verify[^)]*)\)/i);
+    if (vm) { verify = vm[1]; task = task.replace(vm[0], "").trim(); }
+
+    let level = "", why = "", source = "";
+    for (const s of it.subs) {
+      let m;
+      if ((m = s.match(/^\*\*\s*Priority:?\s*\*\*\s*(.*)/i))) level = m[1].trim();
+      else if ((m = s.match(/^\*\*\s*Why:?\s*\*\*\s*(.*)/i))) why = m[1].trim();
+      else if ((m = s.match(/^\*\*\s*Source:?\s*\*\*\s*(.*)/i))) source = m[1].trim();
+    }
+    const lvlWord = (level.match(/^(High|Medium|Low)/i) || [, ""])[1];
+    const pclass = PCLASS[lvlWord.toLowerCase()] || "prio--med";
+    const ts = tsIn(source);
+    let quote = source.replace(/\[[^\]]*\]/, "").trim().replace(/^[“"']|[”"']$/g, "");
+
+    return `<div class="action" data-prio="${esc(lvlWord || "Medium")}">
+        <span class="act-box"></span>
+        <div class="act-main">
+          <div class="act-row">
+            <span class="act-task">${esc(task)}</span>
+            ${lvlWord ? `<span class="prio ${pclass}" title="${esc(level)}">${esc(lvlWord)}</span>` : ""}
+            ${verify ? `<span class="act-verify">${esc(verify)}</span>` : ""}
+          </div>
+          ${why ? `<p class="act-why">${mdInline(why)}</p>` : ""}
+          ${ts ? `<div class="act-source">${pillHTML(ts)}<span class="act-quote">“${esc(quote)}”</span></div>` : ""}
+        </div>
+      </div>`;
+  }).join("");
+}
+
+const EYEBROW = { summary: "the gist", decode: "reading between the lines", actions: "your move" };
+function classify(title, idx) {
+  const t = title.toLowerCase();
+  if (/really meant|lead/.test(t)) return "decode";
+  if (/action item|your task|to.?do/.test(t)) return "actions";
+  if (/summary|decision/.test(t)) return "summary";
+  return ["summary", "decode", "actions"][idx] || "summary";
+}
+
+function renderReport(md) {
+  const norm = md.replace(/\r\n/g, "\n");
+  const parts = norm.split(/^###\s+/m);
+  const preamble = parts.shift().trim();
+  let html = "";
+  if (preamble) html += `<p class="report-greeting">${mdInline(preamble)}</p>`;
+
+  parts.forEach((chunk, i) => {
+    const nl = chunk.indexOf("\n");
+    const rawTitle = (nl === -1 ? chunk : chunk.slice(0, nl)).replace(/^\d+\.\s*/, "").trim();
+    const body = nl === -1 ? "" : chunk.slice(nl + 1);
+    const kind = classify(rawTitle, i);
+    const inner = kind === "decode" ? renderDecode(body)
+      : kind === "actions" ? renderActions(body)
+      : renderSummary(body);
+    html += `<section class="section reveal">
+        <p class="section-eyebrow">${EYEBROW[kind]}</p>
+        <h3 class="section-title">${esc(rawTitle)}</h3>
+        ${inner}
+      </section>`;
+  });
+  return html;
+}
+
+/* ── meetings list ───────────────────────────────────────────────────── */
+function badge(state, hasReport) {
+  if (state === "error") return '<span class="badge error">failed</span>';
+  if (PROCESSING.has(state)) return `<span class="badge processing">${state}</span>`;
   if (hasReport) return '<span class="badge done">ready</span>';
   return "";
 }
 
-// ---- meetings list --------------------------------------------------------
-async function loadMeetings() {
+async function loadMeetings(autoOpen) {
   let data;
-  try { data = await api("/api/meetings"); }
-  catch (e) { return; }
+  try { data = await api("/api/meetings"); } catch (_) { return; }
   listEl.innerHTML = "";
   for (const m of data.meetings) {
     const li = document.createElement("li");
     if (current && current.base === m.base) li.classList.add("active");
     li.dataset.base = m.base;
     li.innerHTML =
-      `<div class="mi-name">${m.base}</div>` +
-      `<div class="mi-meta">${stateBadge(m.state, m.has_report)}` +
-      `${Object.keys(m.tracks).length ? '<span class="badge">🔊 audio</span>' : ""}</div>`;
+      `<div class="mi-name">${esc(m.base)}</div>` +
+      `<div class="mi-meta">${badge(m.state, m.has_report)}` +
+      `${Object.keys(m.tracks).length ? '<span class="badge audio">audio</span>' : ""}</div>`;
     li.onclick = () => openMeeting(m.base);
     listEl.appendChild(li);
   }
+  if (autoOpen && !current && data.meetings[0]) openMeeting(data.meetings[0].base, true);
 }
 
-// ---- open / render a meeting ---------------------------------------------
-async function openMeeting(base) {
+async function openMeeting(base, quiet) {
   let m;
   try { m = await api("/api/meetings/" + encodeURIComponent(base)); }
-  catch (e) { reportEl.innerHTML = `<div class="status-line error">${e.message}</div>`; return; }
+  catch (e) { reportEl.innerHTML = `<div class="status-line error">${esc(e.message)}</div>`; return; }
 
   current = { base, transcript: m.transcript || [], tracks: m.tracks || {}, your_name: m.your_name };
-  [...listEl.children].forEach((li) =>
-    li.classList.toggle("active", li.dataset.base === base));
+  [...listEl.children].forEach((li) => li.classList.toggle("active", li.dataset.base === base));
 
   let html = "";
-  if (m.state === "error") {
-    html += `<div class="status-line error">Processing failed: ${m.error || "unknown error"}</div>`;
-  } else if (PROCESSING.has(m.state)) {
-    html += `<div class="status-line">Processing (${m.state}…) — this can take a few minutes.</div>`;
-  }
-  if (m.report_html) {
-    html += m.report_html;
+  if (m.state === "error") html += `<div class="status-line error">Couldn’t finish this one: ${esc(m.error || "unknown error")}</div>`;
+  else if (PROCESSING.has(m.state)) html += `<div class="status-line">Working on it — ${esc(m.state)}. This takes a few minutes.</div>`;
+
+  if (m.report_md) {
+    try { html += renderReport(m.report_md); }
+    catch (_) { html += `<div class="report-fallback">${m.report_html || ""}</div>`; }
+  } else if (m.report_html) {
+    html += `<div class="report-fallback">${m.report_html}</div>`;
   } else if (!PROCESSING.has(m.state) && m.state !== "error") {
-    html += `<div class="empty">No report yet for this meeting.</div>`;
+    html += `<p class="report-empty">No report yet for this meeting.</p>`;
   }
   reportEl.innerHTML = html;
+  revealIn(reportEl);
 
-  // Keep refreshing while it's still processing.
   if (PROCESSING.has(m.state)) pollMeeting(base);
+  if (!quiet) document.getElementById("workspace").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function pollMeeting(base) {
   if (pollId) clearInterval(pollId);
   pollId = setInterval(async () => {
-    let j;
-    try { j = await api("/api/jobs/" + encodeURIComponent(base)); }
-    catch (_) { return; }
+    let j; try { j = await api("/api/jobs/" + encodeURIComponent(base)); } catch (_) { return; }
     if (!PROCESSING.has(j.state)) {
       clearInterval(pollId); pollId = null;
       await loadMeetings();
-      if (current && current.base === base) openMeeting(base);
+      if (current && current.base === base) openMeeting(base, true);
     }
   }, 3000);
 }
 
-// ---- citation → audio -----------------------------------------------------
-let trackMode = "mix";    // "mix" | "mic" (You) | "system" (Them); chosen in the player bar
-let lastClip = null;      // { ts, chip } — so the selector can reload the same moment
-
-// Resolve the requested mode to a track that actually exists for this meeting.
+/* ── citation → audio (the receipt, playing) ─────────────────────────── */
 function resolveTrack(mode) {
   const t = current.tracks || {};
   if (mode === "mic" && t.mic) return "mic";
   if (mode === "system" && t.system) return "system";
   if (mode === "mix" && t.mix) return "mix";
-  // Fallbacks (e.g. single-track meetings, or the requested side wasn't captured).
-  return t.mix ? "mix" : (t.single ? "single" : (t.system ? "system" : (t.mic ? "mic" : null)));
+  return t.mix ? "mix" : t.single ? "single" : t.system ? "system" : t.mic ? "mic" : null;
 }
 
 function seekTo(ts, chip) {
   if (!current) return;
   lastClip = { ts, chip };
   const track = resolveTrack(trackMode);
-  if (!track) { playerLabel.textContent = "No audio recorded for this meeting."; return; }
+  if (!track) { playerLabel.textContent = "No audio was recorded for this meeting."; return; }
 
-  document.querySelectorAll(".cite.playing").forEach((c) => c.classList.remove("playing"));
+  document.querySelectorAll(".pill.playing").forEach((c) => c.classList.remove("playing"));
   if (chip) chip.classList.add("playing");
-  playerLabel.textContent = `${current.base} · ${track} · ${ts.toFixed(1)}s`;
+  playerLabel.textContent = `${current.base} · ${track} · ${(+ts).toFixed(1)}s`;
 
   const src = `/api/audio/${encodeURIComponent(current.base)}/${track}`;
-  const go = () => { try { player.currentTime = ts; } catch (_) {} player.play(); };
-
+  const go = () => { try { player.currentTime = +ts; } catch (_) {} player.play(); };
   if (player.dataset.src !== src) {
-    player.dataset.src = src;
-    player.src = src;
+    player.dataset.src = src; player.src = src;
     player.addEventListener("loadedmetadata", go, { once: true });
     player.load();
-  } else {
-    go();
-  }
+  } else go();
 }
 
 reportEl.addEventListener("click", (ev) => {
-  const chip = ev.target.closest(".cite");
+  const chip = ev.target.closest(".pill, .cite");
   if (!chip || !current) return;
   const ts = parseFloat(chip.dataset.ts);
   if (!isNaN(ts)) seekTo(ts, chip);
 });
 
-// Player-bar track selector: Mix (both) / You (mic) / Them (system).
 document.querySelectorAll("#track-seg button").forEach((btn) => {
   btn.onclick = () => {
     document.querySelectorAll("#track-seg button").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     trackMode = btn.dataset.mode;
-    if (lastClip) seekTo(lastClip.ts, lastClip.chip);  // replay the same moment on the new side
+    if (lastClip) seekTo(lastClip.ts, lastClip.chip);
   };
 });
 
-// ---- record control -------------------------------------------------------
+player.addEventListener("play", () => playerEq.classList.add("on"));
+player.addEventListener("pause", () => playerEq.classList.remove("on"));
+player.addEventListener("ended", () => {
+  playerEq.classList.remove("on");
+  document.querySelectorAll(".pill.playing").forEach((c) => c.classList.remove("playing"));
+});
+
+/* ── record control ──────────────────────────────────────────────────── */
 async function startRecording() {
   recBtn.disabled = true;
   try {
     await api("/api/record/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: recName.value || "meeting" }),
     });
-  } catch (e) {
-    alert("Could not start recording:\n" + e.message);
-    recBtn.disabled = false;
-    return;
-  }
+  } catch (e) { alert("Couldn’t start recording:\n" + e.message); recBtn.disabled = false; return; }
   recording = true;
-  recBtn.textContent = "■ Stop";
+  recText.textContent = "Stop";
   recBtn.classList.add("recording");
-  recBtn.disabled = false;
-  recName.disabled = true;
-  recTimer.classList.remove("hidden");
-  let secs = 0;
-  recTimer.textContent = "00:00";
+  recBtn.disabled = false; recName.disabled = true;
+  recTimer.hidden = false;
+  let secs = 0; recTimer.textContent = "00:00";
   timerId = setInterval(() => { secs++; recTimer.textContent = fmtTime(secs); }, 1000);
-  await loadMeetings();
+  loadMeetings();
 }
 
 async function stopRecording() {
   recBtn.disabled = true;
   let res;
-  try {
-    res = await api("/api/record/stop", { method: "POST" });
-  } catch (e) {
-    alert("Stop failed:\n" + e.message);
-    resetRecUI();
-    return;
-  }
+  try { res = await api("/api/record/stop", { method: "POST" }); }
+  catch (e) { alert("Stop failed:\n" + e.message); resetRecUI(); return; }
   resetRecUI();
   await loadMeetings();
-  if (res && res.base) openMeeting(res.base);  // shows "processing…" + polls
+  if (res && res.base) openMeeting(res.base);
 }
 
 function resetRecUI() {
   recording = false;
   if (timerId) { clearInterval(timerId); timerId = null; }
-  recBtn.textContent = "● Record";
+  recText.textContent = "Record";
   recBtn.classList.remove("recording");
-  recBtn.disabled = false;
-  recName.disabled = false;
-  recTimer.classList.add("hidden");
+  recBtn.disabled = false; recName.disabled = false;
+  recTimer.hidden = true;
 }
-
 recBtn.onclick = () => (recording ? stopRecording() : startRecording());
 
-player.addEventListener("ended", () =>
-  document.querySelectorAll(".cite.playing").forEach((c) => c.classList.remove("playing")));
+/* ── motion: one orchestrated reveal ─────────────────────────────────── */
+function revealIn(scope) {
+  const els = (scope || document).querySelectorAll(".reveal:not(.in)");
+  els.forEach((el, i) => setTimeout(() => el.classList.add("in"), 60 + i * 70));
+}
 
-// ---- boot -----------------------------------------------------------------
-loadMeetings();
-setInterval(loadMeetings, 8000);  // keep history fresh (state changes, new files)
+$("#hero-cta").onclick = () => {
+  document.getElementById("workspace").scrollIntoView({ behavior: "smooth", block: "start" });
+  if (!current) loadMeetings(true);
+};
+
+/* ── boot ────────────────────────────────────────────────────────────── */
+revealIn(document);             // hero demo fades up
+loadMeetings(true);             // populate sidebar + auto-open newest into the workspace
+setInterval(() => loadMeetings(false), 8000);

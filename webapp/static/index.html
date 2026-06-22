@@ -3,35 +3,97 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Meeting Decoder</title>
+  <title>Meeting Decoder — know what your lead actually meant</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
+  <!-- Top bar: brand + the one primary control (record) ------------------- -->
   <header class="topbar">
-    <div class="brand">🎙️ Meeting Decoder</div>
-    <div class="record-controls">
-      <input id="rec-name" type="text" value="meeting" title="Recording name" />
-      <button id="rec-btn" class="rec-btn">● Record</button>
-      <span id="rec-timer" class="timer hidden">00:00</span>
+    <a class="brand" href="#top">
+      <span class="brand-dot" aria-hidden="true"></span>
+      Meeting&nbsp;Decoder
+    </a>
+    <div class="rec">
+      <input id="rec-name" type="text" value="standup" aria-label="Recording name" />
+      <button id="rec-btn" class="rec-btn">
+        <span class="rec-glyph" aria-hidden="true"></span>
+        <span class="rec-text">Record</span>
+        <span id="rec-timer" class="rec-timer" hidden>00:00</span>
+      </button>
     </div>
   </header>
 
-  <div class="layout">
+  <span id="top"></span>
+
+  <!-- Hero: the thesis is the decode moment itself ------------------------ -->
+  <section class="hero" id="hero">
+    <div class="hero-inner">
+      <p class="kicker">For developers in Hinglish standups</p>
+      <h1 class="hero-title">
+        Know what your lead<br /><em>actually</em> meant.
+      </h1>
+      <p class="hero-sub">
+        Hindi-English meetings move fast and leads talk in hints. Meeting Decoder
+        watches the call, separates your voice from theirs, and hands back the
+        decision, the real meaning, and your move — each one with the receipt.
+      </p>
+
+      <!-- The characteristic moment, shown live -->
+      <figure class="decode-demo reveal" aria-label="Example: a vague line, decoded">
+        <figcaption class="demo-tag">what your lead said</figcaption>
+        <blockquote class="demo-said" lang="hi">
+          “तुमको core का नहीं भेजा, production का।”
+          <span class="pill pill--static"><span class="pill-rec"></span>50.4s<span class="pill-play">▶</span></span>
+        </blockquote>
+        <div class="demo-arrow" aria-hidden="true">↓ decoded</div>
+        <p class="demo-meant">
+          Use the <b>production</b> credentials I already sent — the core-DB ones
+          aren’t coming. Stop waiting on them.
+        </p>
+        <div class="demo-todo">
+          <span class="todo-box" aria-hidden="true"></span>
+          <span class="todo-text">Point your local at the production DB and run the ingest</span>
+          <span class="prio prio--high">High</span>
+          <span class="pill pill--static"><span class="pill-rec"></span>33.8s<span class="pill-play">▶</span></span>
+        </div>
+      </figure>
+
+      <!-- Genuinely sequential, so a sequence is honest -->
+      <ol class="loop" aria-label="How it works">
+        <li><span class="loop-k">Record</span><span class="loop-d">the call, two tracks — you and them, kept apart</span></li>
+        <li><span class="loop-k">Decode</span><span class="loop-d">the decisions and what was really meant</span></li>
+        <li><span class="loop-k">Act</span><span class="loop-d">on your items, each backed by the exact moment</span></li>
+      </ol>
+
+      <button class="cta" id="hero-cta">See a decoded meeting <span aria-hidden="true">↓</span></button>
+    </div>
+  </section>
+
+  <!-- Workspace: the tool ------------------------------------------------- -->
+  <main class="workspace" id="workspace">
     <aside class="sidebar">
-      <div class="sidebar-head">Meetings</div>
+      <h2 class="side-head">Meetings</h2>
       <ul id="meeting-list" class="meeting-list"></ul>
     </aside>
 
-    <main class="content">
+    <section class="report-pane">
       <div id="report" class="report">
-        <div class="empty">Select a meeting, or hit <b>● Record</b> to capture one.</div>
+        <p class="report-empty">Pick a meeting on the left, or hit <b>Record</b> to capture one.</p>
       </div>
-    </main>
-  </div>
+    </section>
+  </main>
 
-  <footer class="player-bar">
-    <span id="player-label" class="player-label">No clip — click a [timestamp ▶] in a report</span>
-    <div id="track-seg" class="track-seg" title="Which audio to play">
+  <!-- Player: the receipt, playing --------------------------------------- -->
+  <footer class="player">
+    <div class="player-now">
+      <span class="player-eq" id="player-eq" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span id="player-label" class="player-label">No moment playing — tap a timestamp to hear it</span>
+    </div>
+    <div class="seg" id="track-seg" role="group" aria-label="Which side to play">
       <button data-mode="mix" class="active">Mix</button>
       <button data-mode="mic">You</button>
       <button data-mode="system">Them</button>

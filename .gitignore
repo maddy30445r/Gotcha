@@ -5,3 +5,5 @@ pipeline_output/
 recordings/
 __pycache__/
 mac_recorder/.build/
+HANDOFF.md
+.claude/
