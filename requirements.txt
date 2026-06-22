@@ -4,3 +4,9 @@ python-dotenv
 webrtcvad-wheels   # mic-track silence trimming (drop-in `import webrtcvad`)
 # Echo cancellation is done natively at capture time (macOS Voice Processing in
 # mac_recorder/), so no Python AEC dependency is needed.
+
+# Web UI (webapp/) — local FastAPI server + browser front-end. Range/seeking for
+# audio playback is built into Starlette; report markdown is rendered server-side.
+fastapi
+uvicorn
+markdown

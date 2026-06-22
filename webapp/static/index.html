@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Meeting Decoder</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🎙️ Meeting Decoder</div>
+    <div class="record-controls">
+      <input id="rec-name" type="text" value="meeting" title="Recording name" />
+      <button id="rec-btn" class="rec-btn">● Record</button>
+      <span id="rec-timer" class="timer hidden">00:00</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-head">Meetings</div>
+      <ul id="meeting-list" class="meeting-list"></ul>
+    </aside>
+
+    <main class="content">
+      <div id="report" class="report">
+        <div class="empty">Select a meeting, or hit <b>● Record</b> to capture one.</div>
+      </div>
+    </main>
+  </div>
+
+  <footer class="player-bar">
+    <span id="player-label" class="player-label">No clip — click a [timestamp ▶] in a report</span>
+    <div id="track-seg" class="track-seg" title="Which audio to play">
+      <button data-mode="mix" class="active">Mix</button>
+      <button data-mode="mic">You</button>
+      <button data-mode="system">Them</button>
+    </div>
+    <audio id="player" controls preload="none"></audio>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
