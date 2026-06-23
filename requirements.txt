@@ -10,3 +10,4 @@ webrtcvad-wheels   # mic-track silence trimming (drop-in `import webrtcvad`)
 fastapi
 uvicorn
 markdown
+python-multipart   # multipart file uploads (POST /api/upload)

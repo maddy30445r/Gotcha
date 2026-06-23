@@ -1,7 +1,15 @@
 "use strict";
 
+/* ── config: backend URL + auth token + native bridge ────────────────── */
+const TAURI = !!window.__TAURI__;
+const invoke = TAURI ? window.__TAURI__.core.invoke : null;
+const DEFAULT_SERVER = "http://localhost:8000";
+const serverUrl = () => (localStorage.getItem("gotcha_server") || DEFAULT_SERVER).replace(/\/+$/, "");
+const authToken = () => localStorage.getItem("gotcha_token") || "";
+
 /* ── state ───────────────────────────────────────────────────────────── */
 let current = null;       // { base, transcript, tracks, your_name }
+let recSession = null;    // { base, system_path, mic_path } from native start
 let recording = false;
 let timerId = null;
 let pollId = null;
@@ -22,7 +30,11 @@ const playerEq = $("#player-eq");
 
 /* ── tiny helpers ────────────────────────────────────────────────────── */
 async function api(path, opts) {
-  const res = await fetch(path, opts);
+  opts = opts || {};
+  const headers = Object.assign({}, opts.headers);
+  const tok = authToken();
+  if (tok) headers["Authorization"] = "Bearer " + tok;
+  const res = await fetch(serverUrl() + path, Object.assign({}, opts, { headers }));
   if (!res.ok) {
     let msg = res.statusText;
     try { msg = (await res.json()).detail || msg; } catch (_) {}
@@ -242,7 +254,8 @@ function seekTo(ts, chip) {
   if (chip) chip.classList.add("playing");
   playerLabel.textContent = `${current.base} · ${track} · ${(+ts).toFixed(1)}s`;
 
-  const src = `/api/audio/${encodeURIComponent(current.base)}/${track}`;
+  const src = `${serverUrl()}/api/audio/${encodeURIComponent(current.base)}/${track}`
+    + `?token=${encodeURIComponent(authToken())}`;
   const go = () => { try { player.currentTime = +ts; } catch (_) {} player.play(); };
   if (player.dataset.src !== src) {
     player.dataset.src = src; player.src = src;
@@ -274,15 +287,14 @@ player.addEventListener("ended", () => {
   document.querySelectorAll(".pill.playing").forEach((c) => c.classList.remove("playing"));
 });
 
-/* ── record control ──────────────────────────────────────────────────── */
+/* ── record control (native capture via Tauri → upload) ──────────────── */
 async function startRecording() {
+  if (!TAURI) { alert("Recording needs the Gotcha desktop app."); return; }
+  if (!authToken()) { openSettings(); return; }
   recBtn.disabled = true;
   try {
-    await api("/api/record/start", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: recName.value || "meeting" }),
-    });
-  } catch (e) { alert("Couldn’t start recording:\n" + e.message); recBtn.disabled = false; return; }
+    recSession = await invoke("start_recording", { name: recName.value || "meeting" });
+  } catch (e) { alert("Couldn’t start recording:\n" + e); recBtn.disabled = false; return; }
   recording = true;
   recText.textContent = "Stop";
   recBtn.classList.add("recording");
@@ -290,17 +302,28 @@ async function startRecording() {
   recTimer.hidden = false;
   let secs = 0; recTimer.textContent = "00:00";
   timerId = setInterval(() => { secs++; recTimer.textContent = fmtTime(secs); }, 1000);
-  loadMeetings();
 }
 
 async function stopRecording() {
   recBtn.disabled = true;
-  let res;
-  try { res = await api("/api/record/stop", { method: "POST" }); }
-  catch (e) { alert("Stop failed:\n" + e.message); resetRecUI(); return; }
+  if (timerId) { clearInterval(timerId); timerId = null; }
+  let sess;
+  try { sess = await invoke("stop_recording"); }
+  catch (e) { alert("Stop failed:\n" + e); resetRecUI(); return; }
+  // Capture is done locally; now upload the two tracks (the paid step on the server).
+  recText.textContent = "Uploading…";
+  let serverBase;
+  try {
+    serverBase = await invoke("upload_recording", {
+      serverUrl: serverUrl(), token: authToken(),
+      name: recName.value || "meeting",
+      systemPath: sess.system_path, micPath: sess.mic_path,
+    });
+  } catch (e) { alert("Upload failed:\n" + e); resetRecUI(); return; }
   resetRecUI();
+  recSession = null;
   await loadMeetings();
-  if (res && res.base) openMeeting(res.base);
+  if (serverBase) openMeeting(serverBase);
 }
 
 function resetRecUI() {
@@ -312,6 +335,24 @@ function resetRecUI() {
   recTimer.hidden = true;
 }
 recBtn.onclick = () => (recording ? stopRecording() : startRecording());
+
+/* ── settings (server URL + token, stored locally) ───────────────────── */
+function openSettings() {
+  const dlg = $("#settings");
+  $("#set-server").value = serverUrl();
+  $("#set-token").value = authToken();
+  dlg.showModal ? dlg.showModal() : (dlg.hidden = false);
+}
+function saveSettings(ev) {
+  ev.preventDefault();
+  localStorage.setItem("gotcha_server", ($("#set-server").value.trim() || DEFAULT_SERVER));
+  localStorage.setItem("gotcha_token", $("#set-token").value.trim());
+  const dlg = $("#settings");
+  dlg.close ? dlg.close() : (dlg.hidden = true);
+  loadMeetings(true);
+}
+$("#settings-btn").onclick = openSettings;
+$("#settings-form").addEventListener("submit", saveSettings);
 
 /* ── motion: one orchestrated reveal ─────────────────────────────────── */
 function revealIn(scope) {
@@ -326,5 +367,6 @@ $("#hero-cta").onclick = () => {
 
 /* ── boot ────────────────────────────────────────────────────────────── */
 revealIn(document);             // hero demo fades up
+if (!authToken()) openSettings();   // first run: ask for backend URL + token
 loadMeetings(true);             // populate sidebar + auto-open newest into the workspace
 setInterval(() => loadMeetings(false), 8000);

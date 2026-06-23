@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Auto-merged into the macOS app bundle by Tauri. The mic prompt text the
+       user sees on first record; Screen Recording is gated by TCC at capture
+       time (no usage-string key) and prompts on the first system-audio grab. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Gotcha records your meeting audio so it can transcribe and decode it for you.</string>
+</dict>
+</plist>

@@ -24,8 +24,10 @@ USAGE
   # interpretation, so if Gemini fails you re-run the third form for free (no
   # paying Sarvam to re-transcribe).
   #
-  # edit YOUR_NAME and GLOSSARY below to match your team. The glossary is what
-  # fixes garbled proper nouns (Worldpay, Delhi, AML, BookingPal, ...).
+  # Per-run settings (your name, team glossary, LLM) live in UserConfig below.
+  # The CLI uses DEFAULT_CONFIG (override via GOTCHA_YOUR_NAME / GOTCHA_LLM_*);
+  # the multi-user backend builds one UserConfig per user and passes cfg=... .
+  # The glossary fixes garbled proper nouns (Worldpay, Delhi, AML, BookingPal…).
 
 PRIVACY WARNING
   Gemini's FREE tier may train on your inputs. Do NOT run real company meetings
@@ -35,6 +37,7 @@ PRIVACY WARNING
 """
 
 import os, sys, glob, json, time, tempfile, re, difflib
+from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor
 
 # Load keys from a .env file (if present) without overriding real env vars.
@@ -45,28 +48,67 @@ except ImportError:
     pass  # python-dotenv not installed — fall back to plain env vars
 
 # ----------------------------------------------------------------------------
-# CONFIG — edit these for your team
+# CONFIG — per-user, no longer hard-coded
 # ----------------------------------------------------------------------------
-YOUR_NAME = "Madhur"
-GLOSSARY = [
+# Single-user defaults. In the multi-user backend each request builds its own
+# UserConfig (the user's name + team glossary + chosen LLM) and threads it
+# through; everything below just falls back to these when no cfg is passed, so
+# the CLI and the existing webapp keep working unchanged.
+DEFAULT_GLOSSARY = [
     "Feather (PMS product)", "BookingPal / BPAL (integration)",
     "AML (Assisted Math Learning platform)", "Jira", "MongoDB", "Worldpay",
     "Blink Hellas", "Delhi (data migration)", "DevOps", "staging", "3DS",
 ]
 # Terms passed to Sarvam as hotwords to reduce proper-noun errors at the source.
-HOTWORDS = ["Feather", "BookingPal", "BPAL", "AML", "Jira", "MongoDB",
-            "Worldpay", "Blink Hellas", "Delhi", "DevOps", "staging", "3DS"]
+DEFAULT_HOTWORDS = ["Feather", "BookingPal", "BPAL", "AML", "Jira", "MongoDB",
+                    "Worldpay", "Blink Hellas", "Delhi", "DevOps", "staging", "3DS"]
 
-GEMINI_MODEL = "gemini-3.5-flash"   # cheap + good with the strict prompt
+
+@dataclass
+class UserConfig:
+    """Everything that used to be a hard-coded module constant. One per user.
+
+    The LLM is provider + model so switching to a paid/no-train tier (the
+    eventual privacy fix) is a config change — set GOTCHA_LLM_PROVIDER /
+    GOTCHA_LLM_MODEL (or pass a UserConfig) — not a code edit. See interpret()."""
+    your_name: str = "Madhur"
+    glossary: list = field(default_factory=lambda: list(DEFAULT_GLOSSARY))
+    hotwords: list = field(default_factory=lambda: list(DEFAULT_HOTWORDS))
+    provider: str = "gemini"            # "gemini" today; "anthropic"/"vertex" later
+    model: str = "gemini-3.5-flash"     # cheap + good with the strict prompt
+
+
+def default_config():
+    """The process-wide default config, with optional .env overrides so the LLM
+    can be swapped without touching code (e.g. GOTCHA_LLM_MODEL=...)."""
+    return UserConfig(
+        your_name=os.environ.get("GOTCHA_YOUR_NAME", "Madhur"),
+        provider=os.environ.get("GOTCHA_LLM_PROVIDER", "gemini"),
+        model=os.environ.get("GOTCHA_LLM_MODEL", "gemini-3.5-flash"),
+    )
+
+
+DEFAULT_CONFIG = default_config()
+
+# Back-compat module attributes — some callers (e.g. webapp/server.py) still read
+# pipeline.YOUR_NAME. Kept as a thin alias onto the default config.
+YOUR_NAME = DEFAULT_CONFIG.your_name
+GLOSSARY = DEFAULT_CONFIG.glossary
+HOTWORDS = DEFAULT_CONFIG.hotwords
+GEMINI_MODEL = DEFAULT_CONFIG.model
 
 
 # ----------------------------------------------------------------------------
 # STEP 1 — transcribe via Sarvam (batch API: handles >30s + diarization)
 # ----------------------------------------------------------------------------
-def transcribe(audio_path, *, diarize=True, force_speaker=None, label="audio"):
+def transcribe(audio_path, *, diarize=True, force_speaker=None, label="audio",
+               hotwords=None):
     """Transcribe one file. With force_speaker set, skip diarization and stamp
     every entry with that speaker label (used for the mic track, which is a
-    single known speaker)."""
+    single known speaker). hotwords biases the recognizer toward the team's
+    proper nouns (defaults to the process-wide config)."""
+    if hotwords is None:
+        hotwords = DEFAULT_CONFIG.hotwords
     from sarvamai import SarvamAI
     key = os.environ.get("SARVAM_API_KEY")
     if not key:
@@ -80,13 +122,26 @@ def transcribe(audio_path, *, diarize=True, force_speaker=None, label="audio"):
         with_diarization=diarize, with_timestamps=True,
         language_code="unknown",
     )
-    # Bias the recognizer toward our proper nouns. Older SDKs may not support
-    # this kwarg, so retry without it rather than failing the whole run.
-    try:
-        job = client.speech_to_text_job.create_job(hotwords=HOTWORDS, **job_kwargs)
-    except TypeError:
-        print("  (SDK doesn't accept hotwords — continuing without)", file=sys.stderr)
-        job = client.speech_to_text_job.create_job(**job_kwargs)
+    # Bias the recognizer toward the team's proper nouns. The param has moved
+    # across Sarvam SDK versions (newer: `prompt`, a comma-joined string; older:
+    # a `hotwords` list) and the installed 0.1.28 batch job accepts NEITHER, so
+    # try each and fall back rather than failing the run. Not lost when it falls
+    # back: the glossary still corrects proper nouns downstream at interpret().
+    create = client.speech_to_text_job.create_job
+    bias_attempts = ([{"prompt": ", ".join(hotwords)}, {"hotwords": hotwords}]
+                     if hotwords else [])
+    job = None
+    for bias in bias_attempts:
+        try:
+            job = create(**bias, **job_kwargs)
+            break
+        except TypeError:
+            continue
+    if job is None:
+        if hotwords:
+            print("  (SDK accepts no prompt/hotwords biasing — continuing without; "
+                  "glossary still fixes proper nouns at interpret)", file=sys.stderr)
+        job = create(**job_kwargs)
     job.upload_files(file_paths=[audio_path])
     job.start()
     job.wait_until_complete(poll_interval=5, timeout=1800)
@@ -122,9 +177,11 @@ def transcribe(audio_path, *, diarize=True, force_speaker=None, label="audio"):
 # ----------------------------------------------------------------------------
 # STEP 2 — build the strict interpretation prompt (citation allowlist generated)
 # ----------------------------------------------------------------------------
-def build_prompt(entries, two_track=False):
+def build_prompt(entries, two_track=False, *, cfg=None):
+    cfg = cfg or DEFAULT_CONFIG
+    YOUR_NAME = cfg.your_name
     valid_ts = ", ".join(str(e["t"]) for e in entries)
-    glossary = "; ".join(GLOSSARY)
+    glossary = "; ".join(cfg.glossary)
     if two_track:
         speaker_block = f"""- TRANSCRIPT: entries with speaker_id, start time, text. Speaker labels are
   RELIABLE for who-vs-{YOUR_NAME}: entries labeled "{YOUR_NAME}" were captured
@@ -191,16 +248,15 @@ Flag ambiguous ownership with "(verify — unclear if yours)". Never assign
 # ----------------------------------------------------------------------------
 # STEP 3 — interpret (Gemini backend; swap for a no-train tier on real meetings)
 # ----------------------------------------------------------------------------
-def interpret(entries, two_track=False):
-    from google import genai
-    from google.genai import types
-    key = os.environ.get("GEMINI_API_KEY")
-    if not key:
-        sys.exit("Set GEMINI_API_KEY")
-    client = genai.Client(api_key=key)
+def interpret(entries, two_track=False, *, cfg=None):
+    """Interpret the transcript into the cited three-section report.
 
-    print("→ [3/3] Interpreting...", file=sys.stderr)
-    system_prompt = build_prompt(entries, two_track=two_track)
+    Dispatches on cfg.provider so swapping the free Gemini tier for a paid/
+    no-train tier (the privacy fix for real meetings) is a config change, not a
+    rewrite. Add a backend below + set cfg.provider/model (or GOTCHA_LLM_*)."""
+    cfg = cfg or DEFAULT_CONFIG
+    print("→ [3/3] Interpreting (%s/%s)..." % (cfg.provider, cfg.model), file=sys.stderr)
+    system_prompt = build_prompt(entries, two_track=two_track, cfg=cfg)
     speaker_word = "speaker" if two_track else "diarized speaker"
     transcript_text = "\n".join(
         f'[{e["t"]}s] ({speaker_word} {e["speaker_id"]}): {e["text"]}'
@@ -209,10 +265,31 @@ def interpret(entries, two_track=False):
     user_msg = ("Here is the diarized transcript. Produce the three sections.\n\n"
                 + transcript_text)
 
+    if cfg.provider == "gemini":
+        return _interpret_gemini(system_prompt, user_msg, cfg.model)
+    # TODO(privacy): add _interpret_anthropic / _interpret_vertex for real
+    # meetings (no-train tiers); the prompt + retry logic are provider-agnostic.
+    sys.exit(f"Unknown LLM provider: {cfg.provider!r}")
+
+
+def _is_transient_llm_error(msg):
+    return ("429" in msg or "RESOURCE_EXHAUSTED" in msg
+            or "503" in msg or "UNAVAILABLE" in msg
+            or "500" in msg or "INTERNAL" in msg)
+
+
+def _interpret_gemini(system_prompt, user_msg, model):
+    from google import genai
+    from google.genai import types
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key:
+        sys.exit("Set GEMINI_API_KEY")
+    client = genai.Client(api_key=key)
+
     for attempt in range(5):
         try:
             resp = client.models.generate_content(
-                model=GEMINI_MODEL, contents=user_msg,
+                model=model, contents=user_msg,
                 config=types.GenerateContentConfig(
                     system_instruction=system_prompt,
                     temperature=0.3, max_output_tokens=4000,
@@ -223,10 +300,7 @@ def interpret(entries, two_track=False):
             return resp.text
         except Exception as ex:
             msg = str(ex)
-            transient = ("429" in msg or "RESOURCE_EXHAUSTED" in msg
-                         or "503" in msg or "UNAVAILABLE" in msg
-                         or "500" in msg or "INTERNAL" in msg)
-            if transient:
+            if _is_transient_llm_error(msg):
                 w = min(60, 2 ** attempt)
                 print(f"[transient error, retry in {w}s: {msg[:80]}]", file=sys.stderr)
                 time.sleep(w); continue
@@ -261,12 +335,13 @@ def drop_bleed(mine, others, window=1.5, sim=0.72, min_chars=8):
     return kept, dropped
 
 
-def _transcribe_system_track(system_path):
+def _transcribe_system_track(system_path, *, hotwords=None):
     """Transcribe the call (system) track with diarization and relabel its speakers
-    as Other / Other-2 / … (everyone who isn't YOUR_NAME; we only need to tell them
+    as Other / Other-2 / … (everyone who isn't the user; we only need to tell them
     apart from each other, not from the user — that split comes from the separate
     mic track)."""
-    others = transcribe(system_path, diarize=True, label="call audio (others)")
+    others = transcribe(system_path, diarize=True, label="call audio (others)",
+                        hotwords=hotwords)
     ids = {}
     for e in others:
         sid = e["speaker_id"]
@@ -276,7 +351,7 @@ def _transcribe_system_track(system_path):
     return others
 
 
-def transcribe_two_track(system_path, mic_path):
+def transcribe_two_track(system_path, mic_path, *, cfg=None):
     """Two-track mode: transcribe the call (system) with diarization and the mic as
     a single known speaker, then merge into one timeline with reliable labels.
 
@@ -284,14 +359,15 @@ def transcribe_two_track(system_path, mic_path):
     server-side batch job, so overlapping the waits ~halves wall-clock for the same
     ~2x cost). If one track fails we keep the other — the transcription is the
     paid, expensive part, so a partial result still beats discarding everything."""
+    cfg = cfg or DEFAULT_CONFIG
     print("→ Two-track mode: mic = %s, others = diarized call audio "
-          "(2 Sarvam jobs in parallel, ~2x cost)." % YOUR_NAME, file=sys.stderr)
+          "(2 Sarvam jobs in parallel, ~2x cost)." % cfg.your_name, file=sys.stderr)
 
     # The mic track is mostly silence, so transcribe_mic_vad VAD-trims it first to
     # cut Sarvam cost, then remaps the trimmed transcript back to the real timeline.
     with ThreadPoolExecutor(max_workers=2) as ex:
-        f_sys = ex.submit(_transcribe_system_track, system_path)
-        f_mic = ex.submit(transcribe_mic_vad, mic_path)
+        f_sys = ex.submit(_transcribe_system_track, system_path, hotwords=cfg.hotwords)
+        f_mic = ex.submit(transcribe_mic_vad, mic_path, cfg=cfg)
         others, e_sys = _settle(f_sys)
         mine, e_mic = _settle(f_mic)
 
@@ -328,16 +404,17 @@ def _settle(future):
         return [], ex
 
 
-def transcribe_mic_vad(mic_path):
+def transcribe_mic_vad(mic_path, *, cfg=None):
     """Transcribe the mic track, trimming silence locally first (if webrtcvad is
     available) and remapping timestamps back to the original timeline. Falls back
     to transcribing the full track when VAD isn't usable."""
+    cfg = cfg or DEFAULT_CONFIG
     import vad
 
     trimmed, seg_map = vad.trim_silence(mic_path)
     if not trimmed:
-        return transcribe(mic_path, diarize=True, force_speaker=YOUR_NAME,
-                          label="your mic (full track)")
+        return transcribe(mic_path, diarize=True, force_speaker=cfg.your_name,
+                          label="your mic (full track)", hotwords=cfg.hotwords)
 
     try:
         import wave
@@ -346,8 +423,8 @@ def transcribe_mic_vad(mic_path):
         print("→ VAD-trimmed mic: %s — sending only your speech to Sarvam."
               % vad.summarize(seg_map, orig_secs), file=sys.stderr)
 
-        entries = transcribe(trimmed, diarize=True, force_speaker=YOUR_NAME,
-                             label="your mic (VAD-trimmed)")
+        entries = transcribe(trimmed, diarize=True, force_speaker=cfg.your_name,
+                             label="your mic (VAD-trimmed)", hotwords=cfg.hotwords)
         for e in entries:
             e["t"] = round(vad.remap(e["t"], seg_map), 2)
         return entries
@@ -358,17 +435,18 @@ def transcribe_mic_vad(mic_path):
             pass
 
 
-def _load_saved_transcript(path):
+def _load_saved_transcript(path, *, cfg=None):
     """Load a previously saved transcript.json and infer whether it came from
     two-track capture (reliable labels) so the prompt picks the right speaker
     instructions. Lets us re-interpret for free after a Gemini outage — no paying
     Sarvam to re-transcribe."""
+    cfg = cfg or DEFAULT_CONFIG
     with open(path, encoding="utf-8") as f:
         entries = json.load(f)
     if not isinstance(entries, list) or not entries:
         sys.exit(f"Not a valid transcript JSON: {path}")
     two_track = any(
-        e.get("speaker_id") == YOUR_NAME or str(e.get("speaker_id", "")).startswith("Other")
+        e.get("speaker_id") == cfg.your_name or str(e.get("speaker_id", "")).startswith("Other")
         for e in entries
     )
     return entries, two_track
@@ -429,8 +507,8 @@ def main():
     _interpret_and_save(entries, two_track, out_dir, base)
 
 
-def _interpret_and_save(entries, two_track, out_dir, base):
-    report = interpret(entries, two_track=two_track)
+def _interpret_and_save(entries, two_track, out_dir, base, *, cfg=None):
+    report = interpret(entries, two_track=two_track, cfg=cfg)
     print("\n" + "=" * 70)
     print(report)
     with open(os.path.join(out_dir, f"{base}.report.md"), "w", encoding="utf-8") as f:

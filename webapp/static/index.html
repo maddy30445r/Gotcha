@@ -3,19 +3,19 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Meeting Decoder — know what your lead actually meant</title>
+  <title>Gotcha — just say Gotcha and offload your meetings</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <!-- Top bar: brand + the one primary control (record) ------------------- -->
+  <!-- Top bar: brand + the one primary control (record) + settings --------- -->
   <header class="topbar">
     <a class="brand" href="#top">
       <span class="brand-dot" aria-hidden="true"></span>
-      Meeting&nbsp;Decoder
+      Gotcha
     </a>
     <div class="rec">
       <input id="rec-name" type="text" value="standup" aria-label="Recording name" />
@@ -24,6 +24,7 @@
         <span class="rec-text">Record</span>
         <span id="rec-timer" class="rec-timer" hidden>00:00</span>
       </button>
+      <button id="settings-btn" class="icon-btn" title="Settings" aria-label="Settings">⚙</button>
     </div>
   </header>
 
@@ -34,12 +35,14 @@
     <div class="hero-inner">
       <p class="kicker">For developers in Hinglish standups</p>
       <h1 class="hero-title">
-        Know what your lead<br /><em>actually</em> meant.
+        Just say <em>Gotcha</em>.<br />We&rsquo;ll handle the meeting.
       </h1>
       <p class="hero-sub">
-        Hindi-English meetings move fast and leads talk in hints. Meeting Decoder
-        watches the call, separates your voice from theirs, and hands back the
-        decision, the real meaning, and your move — each one with the receipt.
+        Hindi-English standups move fast and leads talk in hints. Gotcha is your
+        friendly meeting advisor: it listens when you say so, separates your voice
+        from theirs, and hands back the decision, what your lead <em>really</em>
+        meant, and your next move — each one with the receipt. No more guessing or
+        re-prompting an AI after the call.
       </p>
 
       <!-- The characteristic moment, shown live -->
@@ -73,6 +76,43 @@
     </div>
   </section>
 
+  <!-- Why Gotcha: the benefits ------------------------------------------- -->
+  <section class="benefits" id="why" aria-label="Why Gotcha">
+    <p class="benefits-eyebrow">why developers keep it open</p>
+    <ul class="benefit-grid">
+      <li class="benefit reveal">
+        <span class="benefit-mark" aria-hidden="true">✶</span>
+        <h3>A friendly advisor, not a transcript</h3>
+        <p>Gotcha decodes the hard parts — what was decided, what your lead meant,
+           and exactly what <em>you</em> now owe — and tells you your next move.</p>
+      </li>
+      <li class="benefit reveal">
+        <span class="benefit-mark" aria-hidden="true">▶</span>
+        <h3>Points you to the exact moment</h3>
+        <p>Every claim is a tappable timestamp that jumps the audio to that second.
+           Recheck the important bits in seconds, not by re-listening.</p>
+      </li>
+      <li class="benefit reveal">
+        <span class="benefit-mark" aria-hidden="true">●</span>
+        <h3>Only listens when you allow it</h3>
+        <p>No always-on mic, no 24/7 surveillance. Gotcha records only between your
+           Record and Stop — and nothing else.</p>
+      </li>
+      <li class="benefit reveal">
+        <span class="benefit-mark" aria-hidden="true">◇</span>
+        <h3>Lightweight & out of your way</h3>
+        <p>A small, fast app that sits quietly until you need it — not a heavy,
+           bloated client hogging your machine.</p>
+      </li>
+      <li class="benefit reveal">
+        <span class="benefit-mark" aria-hidden="true">🔒</span>
+        <h3>Private by design</h3>
+        <p>Your audio is encrypted in transit and at rest, never used to train any
+           AI model, and you can wipe your data anytime.</p>
+      </li>
+    </ul>
+  </section>
+
   <!-- Workspace: the tool ------------------------------------------------- -->
   <main class="workspace" id="workspace">
     <aside class="sidebar">
@@ -101,6 +141,26 @@
     <audio id="player" controls preload="none"></audio>
   </footer>
 
-  <script src="/static/app.js"></script>
+  <!-- Settings: backend URL + access token ------------------------------- -->
+  <dialog id="settings" class="settings">
+    <form id="settings-form" method="dialog" class="settings-form">
+      <h3 class="settings-title">Gotcha settings</h3>
+      <p class="settings-hint">Connect Gotcha to your account. Your team admin gives
+        you the server URL and access token.</p>
+      <label class="settings-field">
+        <span>Server URL</span>
+        <input id="set-server" type="url" placeholder="http://localhost:8000" />
+      </label>
+      <label class="settings-field">
+        <span>Access token</span>
+        <input id="set-token" type="password" placeholder="paste your token" autocomplete="off" />
+      </label>
+      <div class="settings-actions">
+        <button type="submit" class="cta cta--sm">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
 </body>
 </html>
