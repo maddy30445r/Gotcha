@@ -217,9 +217,9 @@ async function openMeeting(base, quiet) {
     html += `<div class="report-fallback">${m.report_html}</div>`;
   } else if (m.state === "parked") {
     html += `<div class="parked-cta reveal">
-        <p class="parked-q">Want to catch up on what went down in this call?</p>
-        <p class="parked-sub">It’s parked safe — decode it whenever you’re ready.</p>
-        <button class="cta" id="decode-btn">Decode it ⚡</button>
+        <p class="parked-q">This recording hasn’t been summarized yet.</p>
+        <p class="parked-sub">Summarize it whenever you’re ready.</p>
+        <button class="cta" id="decode-btn">Summarize now</button>
       </div>`;
   } else if (!PROCESSING.has(m.state) && m.state !== "error") {
     html += `<p class="report-empty">No report yet for this meeting.</p>`;

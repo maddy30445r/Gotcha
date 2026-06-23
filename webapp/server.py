@@ -512,10 +512,13 @@ async def upload(system: UploadFile = File(...), mic: UploadFile = File(...),
         _write_meta(user, base, glossary=terms, parked=False, name=name)
         _set_state(user, base, "queued")
         _work_q.put((user, base, system_path, mic_path, terms))
+        state = "queued"
     else:
         _write_meta(user, base, glossary=terms, parked=True, name=name)
         _set_state(user, base, "parked")
-    return {"base": base}
+        state = "parked"
+    # Return the resulting state so the client can confirm park-vs-process took.
+    return {"base": base, "state": state}
 
 
 @app.post("/api/process/{base}")

@@ -38,11 +38,9 @@
         Just say <em>Gotcha</em>.<br />We&rsquo;ll handle the meeting.
       </h1>
       <p class="hero-sub">
-        Hindi-English standups move fast and leads talk in hints. Gotcha is your
-        friendly meeting advisor: it listens when you say so, separates your voice
-        from theirs, and hands back the decision, what your lead <em>really</em>
-        meant, and your next move — each one with the receipt. No more guessing or
-        re-prompting an AI after the call.
+        Gotcha turns each meeting into a clear, personalized brief — the decisions
+        made, what your lead <em>really</em> meant, and your action items — with every
+        point linked to the exact moment it was said.
       </p>
 
       <!-- The characteristic moment, shown live -->
@@ -67,9 +65,9 @@
 
       <!-- Genuinely sequential, so a sequence is honest -->
       <ol class="loop" aria-label="How it works">
-        <li><span class="loop-k">Record</span><span class="loop-d">the call, two tracks — you and them, kept apart</span></li>
+        <li><span class="loop-k">Record</span><span class="loop-d">the meeting, with one tap</span></li>
         <li><span class="loop-k">Decode</span><span class="loop-d">the decisions and what was really meant</span></li>
-        <li><span class="loop-k">Act</span><span class="loop-d">on your items, each backed by the exact moment</span></li>
+        <li><span class="loop-k">Act</span><span class="loop-d">on your items, each linked to the exact moment</span></li>
       </ol>
 
       <button class="cta" id="hero-cta">See a decoded meeting <span aria-hidden="true">↓</span></button>
@@ -81,34 +79,34 @@
     <p class="benefits-eyebrow">why developers keep it open</p>
     <ul class="benefit-grid">
       <li class="benefit reveal">
-        <span class="benefit-mark" aria-hidden="true">✶</span>
-        <h3>A friendly advisor, not a transcript</h3>
-        <p>Gotcha decodes the hard parts — what was decided, what your lead meant,
-           and exactly what <em>you</em> now owe — and tells you your next move.</p>
+        <span class="benefit-mark" aria-hidden="true">01</span>
+        <h3>A clear brief, not a transcript</h3>
+        <p>Gotcha distills the meeting into what was decided, what your lead meant,
+           and exactly what <em>you</em> now owe — with your next move spelled out.</p>
       </li>
       <li class="benefit reveal">
-        <span class="benefit-mark" aria-hidden="true">▶</span>
+        <span class="benefit-mark" aria-hidden="true">02</span>
         <h3>Points you to the exact moment</h3>
-        <p>Every claim is a tappable timestamp that jumps the audio to that second.
-           Recheck the important bits in seconds, not by re-listening.</p>
+        <p>Every point is linked to the second it was said, so you can verify the
+           important bits in seconds instead of re-listening.</p>
       </li>
       <li class="benefit reveal">
-        <span class="benefit-mark" aria-hidden="true">●</span>
+        <span class="benefit-mark" aria-hidden="true">03</span>
         <h3>Only listens when you allow it</h3>
-        <p>No always-on mic, no 24/7 surveillance. Gotcha records only between your
-           Record and Stop — and nothing else.</p>
+        <p>Gotcha records only while you choose to — never in the background, and
+           never without you starting it.</p>
       </li>
       <li class="benefit reveal">
-        <span class="benefit-mark" aria-hidden="true">◇</span>
-        <h3>Lightweight & out of your way</h3>
-        <p>A small, fast app that sits quietly until you need it — not a heavy,
-           bloated client hogging your machine.</p>
+        <span class="benefit-mark" aria-hidden="true">04</span>
+        <h3>Lightweight and out of your way</h3>
+        <p>A small, fast app that stays quiet until you need it — not a heavy client
+           weighing down your machine.</p>
       </li>
       <li class="benefit reveal">
-        <span class="benefit-mark" aria-hidden="true">🔒</span>
+        <span class="benefit-mark" aria-hidden="true">05</span>
         <h3>Private by design</h3>
         <p>Your audio is encrypted in transit and at rest, never used to train any
-           AI model, and you can wipe your data anytime.</p>
+           AI model, and yours to delete at any time.</p>
       </li>
     </ul>
   </section>
@@ -165,16 +163,16 @@
   <!-- Post-recording: glossary + decide now-or-later -------------------- -->
   <dialog id="postrec" class="settings">
     <div class="settings-form">
-      <h3 class="settings-title">That’s a wrap 🎬</h3>
-      <p class="settings-hint">Got the whole thing on tape. Any names, acronyms or jargon
-        we might butcher? Drop them here so we spell them right.</p>
+      <h3 class="settings-title">Recording saved</h3>
+      <p class="settings-hint">Add any names, acronyms, or terms from this meeting so
+        they’re captured accurately.</p>
       <label class="settings-field">
-        <span>Glossary for this meeting (optional)</span>
-        <textarea id="post-glossary" rows="2" placeholder="Worldpay, BookingPal, Aadhaar, 3DS…"></textarea>
+        <span>Names &amp; terms (optional)</span>
+        <textarea id="post-glossary" rows="2" placeholder="Worldpay, BookingPal, Aadhaar, 3DS"></textarea>
       </label>
       <div class="settings-actions postrec-actions">
-        <button type="button" id="post-park" class="ghost-btn">Park it for now 🅿️</button>
-        <button type="button" id="post-jump" class="cta cta--sm">Ready to jump in! ⚡</button>
+        <button type="button" id="post-park" class="ghost-btn">Save for later</button>
+        <button type="button" id="post-jump" class="cta cta--sm">Summarize now</button>
       </div>
     </div>
   </dialog>
