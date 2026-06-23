@@ -26,4 +26,7 @@ serde_json = "1"
 # spawn_blocking so commands don't freeze the webview. native-tls (Secure
 # Transport) on macOS — no OpenSSL needed.
 reqwest = { version = "0.12", features = ["blocking", "multipart", "json"] }
+# Zero-paste onboarding: the site's "Open in Gotcha" button fires
+# gotcha://connect?server=…&token=… and the app self-configures.
+tauri-plugin-deep-link = "2"
 

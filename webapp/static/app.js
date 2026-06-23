@@ -294,7 +294,12 @@ async function startRecording() {
   recBtn.disabled = true;
   try {
     recSession = await invoke("start_recording", { name: recName.value || "meeting" });
-  } catch (e) { alert("Couldn’t start recording:\n" + e); recBtn.disabled = false; return; }
+  } catch (e) {
+    const msg = String(e);
+    if (/[Pp]ermission/.test(msg)) openPerm();   // guide the grant instead of a dead-end alert
+    else alert("Couldn’t start recording:\n" + msg);
+    recBtn.disabled = false; return;
+  }
   recording = true;
   recText.textContent = "Stop";
   recBtn.classList.add("recording");
@@ -353,6 +358,48 @@ function saveSettings(ev) {
 }
 $("#settings-btn").onclick = openSettings;
 $("#settings-form").addEventListener("submit", saveSettings);
+
+/* ── zero-paste onboarding: gotcha://connect?server=&token= ──────────── */
+function applyConnectUrl(raw) {
+  try {
+    const u = new URL(raw);
+    const server = u.searchParams.get("server");
+    const token = u.searchParams.get("token");
+    if (server) localStorage.setItem("gotcha_server", server.replace(/\/+$/, ""));
+    if (token) localStorage.setItem("gotcha_token", token);
+    const dlg = $("#settings"); if (dlg && dlg.open) dlg.close();
+    loadMeetings(true);
+    return true;
+  } catch (_) { return false; }
+}
+if (TAURI && window.__TAURI__.event) {
+  // The site's "Open in Gotcha" link routes here via the Rust deep-link handler.
+  window.__TAURI__.event.listen("deep-link", (e) => applyConnectUrl(e.payload));
+}
+
+/* ── permission wizard (opened when capture is blocked) ──────────────── */
+function openPerm() {
+  const dlg = $("#perm");
+  dlg.showModal ? dlg.showModal() : (dlg.hidden = false);
+}
+document.querySelectorAll("#perm [data-pane]").forEach((b) => {
+  b.onclick = () => { if (invoke) invoke("open_privacy_pane", { which: b.dataset.pane }); };
+});
+const permClose = $("#perm-close");
+if (permClose) permClose.onclick = () => { const d = $("#perm"); d.close ? d.close() : (d.hidden = true); };
+const permRelaunch = $("#perm-relaunch");
+if (permRelaunch) permRelaunch.onclick = () => { if (invoke) invoke("relaunch"); };
+
+// Build a shareable connect link from the current settings (for an admin to send).
+const copyBtn = $("#copy-link");
+if (copyBtn) copyBtn.onclick = () => {
+  const server = ($("#set-server").value.trim() || DEFAULT_SERVER).replace(/\/+$/, "");
+  const token = $("#set-token").value.trim();
+  const link = `gotcha://connect?server=${encodeURIComponent(server)}&token=${encodeURIComponent(token)}`;
+  if (navigator.clipboard) navigator.clipboard.writeText(link);
+  copyBtn.textContent = "Copied ✓";
+  setTimeout(() => (copyBtn.textContent = "Copy connect link"), 1500);
+};
 
 /* ── motion: one orchestrated reveal ─────────────────────────────────── */
 function revealIn(scope) {

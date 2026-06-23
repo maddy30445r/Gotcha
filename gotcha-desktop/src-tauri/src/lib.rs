@@ -13,7 +13,8 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
-use tauri::State;
+use tauri::{Emitter, State};
+use tauri_plugin_deep_link::DeepLinkExt;
 
 struct RecState {
     child: Child,
@@ -221,15 +222,52 @@ async fn upload_recording(
     Ok(base)
 }
 
+/// Open the exact macOS privacy pane for a permission ("mic" or "screen").
+#[tauri::command]
+fn open_privacy_pane(which: String) -> Result<(), String> {
+    let anchor = match which.as_str() {
+        "mic" => "Privacy_Microphone",
+        "screen" => "Privacy_ScreenCapture",
+        _ => "Privacy",
+    };
+    let url = format!("x-apple.systempreferences:com.apple.preference.security?{anchor}");
+    std::process::Command::new("open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Relaunch the app — needed after granting Screen Recording (the grant only
+/// takes effect on relaunch). `restart()` diverges (replaces the process).
+#[tauri::command]
+fn relaunch(app: tauri::AppHandle) {
+    app.restart();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_deep_link::init())
         .manage(RecMutex::default())
+        .setup(|app| {
+            // gotcha://connect?server=…&token=… → forward each URL to the webview,
+            // which parses it and saves the settings (zero-paste onboarding).
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    let _ = handle.emit("deep-link", url.to_string());
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             start_recording,
             stop_recording,
-            upload_recording
+            upload_recording,
+            open_privacy_pane,
+            relaunch
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

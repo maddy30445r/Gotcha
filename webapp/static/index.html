@@ -156,9 +156,28 @@
         <input id="set-token" type="password" placeholder="paste your token" autocomplete="off" />
       </label>
       <div class="settings-actions">
+        <button type="button" id="copy-link" class="ghost-btn">Copy connect link</button>
         <button type="submit" class="cta cta--sm">Save</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- Permission wizard (shown when capture is blocked) ------------------ -->
+  <dialog id="perm" class="settings">
+    <div class="settings-form">
+      <h3 class="settings-title">Two quick permissions</h3>
+      <p class="settings-hint">Gotcha needs Microphone and Screen&nbsp;Recording to capture
+        your meeting. Grant both, then relaunch — macOS only applies Screen Recording
+        after a restart.</p>
+      <div class="perm-steps">
+        <button type="button" class="ghost-btn" data-pane="mic">1 · Open Microphone settings</button>
+        <button type="button" class="ghost-btn" data-pane="screen">2 · Open Screen Recording settings</button>
+      </div>
+      <div class="settings-actions">
+        <button type="button" id="perm-close" class="ghost-btn">Close</button>
+        <button type="button" id="perm-relaunch" class="cta cta--sm">Relaunch Gotcha</button>
+      </div>
+    </div>
   </dialog>
 
   <script src="app.js"></script>
