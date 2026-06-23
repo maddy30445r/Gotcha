@@ -1,0 +1,40 @@
+# Gotcha alpha deploy — the backend + Caddy (auto-HTTPS) on one free always-on VM.
+#
+#   app    — the FastAPI backend (built from ../Dockerfile). No public port; only
+#            Caddy talks to it. Per-user data on the `gotcha-data` named volume.
+#   caddy  — TLS terminator + reverse proxy. Fetches/renews a Let's Encrypt cert
+#            for the DuckDNS domain automatically (encryption in transit).
+#
+# Encryption AT REST = the VM's provider-encrypted block volume (Oracle/GCP
+# encrypt by default), per webapp/server.py's deploy note — no app-level crypto.
+#
+# Bring up:  cp .env.example .env  &&  edit keys  &&  docker compose up -d --build
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env          # SARVAM_API_KEY / GEMINI_API_KEY / caps — never committed
+    volumes:
+      - gotcha-data:/data    # pipeline_output/ recordings/ usage/ users.json
+    expose:
+      - "8000"               # internal only; reached via the caddy service
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data      # cert storage (separate from app data)
+      - caddy-config:/config
+    depends_on:
+      - app
+
+volumes:
+  gotcha-data:
+  caddy-data:
+  caddy-config:

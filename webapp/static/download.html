@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Get Gotcha for Mac</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <!-- Reuse the app's :root tokens + font stacks. -->
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    /* Page-scoped: a simple centered onboarding column over the app's palette. */
+    body { margin: 0; background: var(--ink-900); color: var(--text);
+           font-family: var(--body), sans-serif; line-height: 1.5; }
+    .wrap { max-width: 640px; margin: 0 auto; padding: 64px 24px 96px; }
+    .brand { font-family: var(--mono); font-size: 13px; letter-spacing: .14em;
+             text-transform: uppercase; color: var(--amber); }
+    h1 { font-family: var(--display); font-weight: 500; font-size: clamp(30px, 6vw, 44px);
+         line-height: 1.08; margin: 14px 0 10px; }
+    h1 em { font-style: italic; color: var(--amber-hi); }
+    .sub { color: var(--muted); font-size: 17px; margin: 0 0 32px; }
+    .btn { display: inline-flex; align-items: center; gap: 10px; text-decoration: none;
+           font-weight: 600; font-size: 15px; padding: 13px 22px; border-radius: var(--r-btn);
+           border: 1px solid var(--line-2); color: var(--text); background: var(--ink-700);
+           transition: background var(--t), border-color var(--t), transform var(--t); }
+    .btn:hover { background: var(--ink-650); border-color: var(--amber-line); transform: translateY(-1px); }
+    .btn.primary { background: var(--amber); color: #1a1407; border-color: transparent; }
+    .btn.primary:hover { background: var(--amber-hi); }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 12px; margin: 4px 0 8px; }
+    .hint { font-size: 13.5px; color: var(--faint); margin: 8px 0 0; }
+    section { margin-top: 44px; padding-top: 28px; border-top: 1px solid var(--line); }
+    h2 { font-family: var(--display); font-weight: 500; font-size: 21px; margin: 0 0 14px; }
+    ol { padding-left: 20px; margin: 0; } li { margin: 9px 0; }
+    code, kbd { font-family: var(--mono); font-size: 12.5px; background: var(--ink-800);
+                border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+    .privacy { color: var(--muted); font-size: 14.5px; }
+    .privacy b { color: var(--text); font-weight: 600; }
+    .privacy .warn { color: var(--coral); }
+    #connect-wrap[hidden] { display: none; }
+    .no-token { color: var(--faint); font-size: 13.5px; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p class="brand"><span></span>Gotcha</p>
+    <h1>Get <em>Gotcha</em> for Mac</h1>
+    <p class="sub">
+      Record your meeting, and Gotcha hands back a clear brief — the decisions, what
+      your lead really meant, and your action items — each linked to the exact moment
+      it was said.
+    </p>
+
+    <div class="btn-row">
+      <!-- Point this at the Gotcha.dmg GitHub Release asset after publishing. -->
+      <a class="btn primary" id="download-btn" href="#" download>↓ Download for Mac</a>
+      <span id="connect-wrap" hidden>
+        <a class="btn" id="connect-btn" href="#">Open in Gotcha</a>
+      </span>
+    </div>
+    <p class="hint" id="connect-hint" hidden>
+      Already installed? <b>Open in Gotcha</b> signs you in automatically — no copy-paste.
+    </p>
+    <p class="no-token" id="no-token-hint">
+      Your invite link includes a personal sign-in token. Open the link you were sent to
+      enable one-click sign-in; otherwise paste your server URL + token under
+      <kbd>⚙ Settings</kbd> in the app.
+    </p>
+
+    <section>
+      <h2>Install &amp; first run</h2>
+      <ol>
+        <li>Open the downloaded <code>Gotcha.dmg</code> and drag <b>Gotcha</b> to Applications.</li>
+        <li>First launch only: <b>right-click → Open</b> (the build is self-signed, not yet
+            notarized), then confirm.</li>
+        <li>When asked, grant <b>Microphone</b> and <b>Screen&nbsp;Recording</b> — Gotcha needs
+            both to capture you and the call as separate tracks. After granting Screen
+            Recording the app relaunches itself.</li>
+        <li>Click <b>Open in Gotcha</b> above (or paste your server + token in
+            <kbd>⚙ Settings</kbd>), then hit <b>● Record</b> when your meeting starts.</li>
+      </ol>
+    </section>
+
+    <section class="privacy">
+      <h2>Privacy</h2>
+      <ul>
+        <li><b>On-demand only.</b> Gotcha records solely while you hold a meeting and press
+            <b>Record</b> — there is <b>no background or always-on listening</b>.</li>
+        <li><b>Managed keys.</b> Transcription and analysis run on Gotcha's backend over an
+            encrypted (HTTPS) connection; your audio and reports are stored on an encrypted
+            disk in your own namespace.</li>
+        <li><b>You control your data.</b> Recordings stay tied to your account; nothing is
+            shared across users.</li>
+        <li class="warn"><b>Alpha note:</b> during the alpha, interpretation uses a model tier
+            that may use inputs to improve the service — please record <b>non-confidential /
+            test meetings only</b> until the no-train tier is enabled.</li>
+      </ul>
+    </section>
+  </div>
+
+  <script>
+    // The invite link carries ?token=... — wire the deep link + the download.
+    // gotcha://connect?server=<this origin>&token=<token> binds the installed app
+    // to this backend with zero copy-paste (handled in the Tauri shell).
+    (function () {
+      var DMG_URL = "#"; // ← set to the Gotcha.dmg GitHub Release asset URL
+      var dl = document.getElementById("download-btn");
+      if (DMG_URL !== "#") dl.href = DMG_URL;
+
+      var token = new URLSearchParams(location.search).get("token");
+      if (token) {
+        var server = location.origin; // the backend serving this page
+        var link = "gotcha://connect?server=" + encodeURIComponent(server) +
+                   "&token=" + encodeURIComponent(token);
+        document.getElementById("connect-btn").href = link;
+        document.getElementById("connect-wrap").hidden = false;
+        document.getElementById("connect-hint").hidden = false;
+        document.getElementById("no-token-hint").hidden = true;
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+# Keep the image to backend code only. User data is a mounted volume, never baked.
+.git
+.env
+*.dmg
+
+# Per-user data / local recordings (live on the /data volume at deploy)
+recordings/
+pipeline_output/
+usage/
+users.json
+gemini_output/
+
+# Desktop app + native build artifacts (not part of the server image)
+gotcha-desktop/
+mac_recorder/.build/
+mac_recorder/
+
+# Python / editor cruft
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store

@@ -336,6 +336,12 @@ app.add_middleware(
 )
 
 
+@app.get("/healthz")
+def healthz():
+    """Unauthenticated liveness probe for the host / uptime checks."""
+    return {"ok": True}
+
+
 # ---------------------------------------------------------------------------
 # Meetings / report (all per-user, all behind auth)
 # ---------------------------------------------------------------------------
