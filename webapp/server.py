@@ -218,12 +218,14 @@ _work_q = queue.Queue()
 
 def _set_state(user, base, state, error=None):
     with _jobs_lock:
-        _jobs[(_uid(user), base)] = {"state": state, "error": error}
+        # ts lets a just-queued meeting (no report file yet) sort by recency.
+        _jobs[(_uid(user), base)] = {"state": state, "error": error, "ts": time.time()}
 
 
 def _get_state(user, base):
     with _jobs_lock:
-        return dict(_jobs.get((_uid(user), base), {"state": "unknown", "error": None}))
+        return dict(_jobs.get((_uid(user), base),
+                              {"state": "unknown", "error": None, "ts": 0.0}))
 
 
 def _ensure_mix(user, base):
@@ -314,11 +316,13 @@ def list_meetings(user=Depends(auth)):
                 base = fn[: -len(suffix)]
                 e = seen.setdefault(base, {"base": base, "mtime": 0.0})
                 e["mtime"] = max(e["mtime"], os.path.getmtime(os.path.join(out_dir, fn)))
-    # Merge in in-flight jobs (no files yet).
+    # Merge in in-flight jobs (no files yet) and let their job timestamp drive
+    # ordering, so a just-recorded meeting sorts to the top immediately.
     with _jobs_lock:
-        for (uid, base) in _jobs:
+        for (uid, base), j in _jobs.items():
             if uid == _uid(user):
-                seen.setdefault(base, {"base": base, "mtime": 0.0})
+                e = seen.setdefault(base, {"base": base, "mtime": 0.0})
+                e["mtime"] = max(e["mtime"], j.get("ts", 0.0))
 
     meetings = []
     for base, e in seen.items():
@@ -355,7 +359,11 @@ def get_meeting(base: str, user=Depends(auth)):
         with open(transcript_path, encoding="utf-8") as f:
             transcript = json.load(f)
 
-    if report_html is None and transcript is None:
+    state = _get_state(user, base)
+    # 404 only when there's truly nothing — no artifacts AND no live job. An
+    # in-flight meeting (queued/transcribing/…) returns 200 so the UI can show
+    # "working on it" and poll, instead of a misleading "no artifacts".
+    if report_html is None and transcript is None and state["state"] == "unknown":
         raise HTTPException(404, f"No artifacts for {base}")
 
     return {
@@ -365,8 +373,8 @@ def get_meeting(base: str, user=Depends(auth)):
         "transcript": transcript,
         "tracks": _tracks_for(user, base),
         "your_name": _cfg_for(user).your_name,
-        "state": _get_state(user, base)["state"],
-        "error": _get_state(user, base)["error"],
+        "state": state["state"],
+        "error": state["error"],
     }
 
 
