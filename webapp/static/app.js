@@ -10,6 +10,7 @@ const authToken = () => localStorage.getItem("gotcha_token") || "";
 /* ── state ───────────────────────────────────────────────────────────── */
 let current = null;       // { base, transcript, tracks, your_name }
 let recSession = null;    // { base, system_path, mic_path } from native start
+let pendingRec = null;    // captured-but-not-yet-uploaded session (awaiting the post-rec modal)
 let recording = false;
 let timerId = null;
 let pollId = null;
@@ -173,6 +174,7 @@ function renderReport(md) {
 /* ── meetings list ───────────────────────────────────────────────────── */
 function badge(state, hasReport) {
   if (state === "error") return '<span class="badge error">failed</span>';
+  if (state === "parked") return '<span class="badge parked">parked</span>';
   if (PROCESSING.has(state)) return `<span class="badge processing">${state}</span>`;
   if (hasReport) return '<span class="badge done">ready</span>';
   return "";
@@ -213,11 +215,20 @@ async function openMeeting(base, quiet) {
     catch (_) { html += `<div class="report-fallback">${m.report_html || ""}</div>`; }
   } else if (m.report_html) {
     html += `<div class="report-fallback">${m.report_html}</div>`;
+  } else if (m.state === "parked") {
+    html += `<div class="parked-cta reveal">
+        <p class="parked-q">Want to catch up on what went down in this call?</p>
+        <p class="parked-sub">It’s parked safe — decode it whenever you’re ready.</p>
+        <button class="cta" id="decode-btn">Decode it ⚡</button>
+      </div>`;
   } else if (!PROCESSING.has(m.state) && m.state !== "error") {
     html += `<p class="report-empty">No report yet for this meeting.</p>`;
   }
   reportEl.innerHTML = html;
   revealIn(reportEl);
+
+  const decodeBtn = $("#decode-btn");
+  if (decodeBtn) decodeBtn.onclick = () => decodeMeeting(base);
 
   if (PROCESSING.has(m.state)) pollMeeting(base);
   if (!quiet) document.getElementById("workspace").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -315,20 +326,44 @@ async function stopRecording() {
   let sess;
   try { sess = await invoke("stop_recording"); }
   catch (e) { alert("Stop failed:\n" + e); resetRecUI(); return; }
-  // Capture is done locally; now upload the two tracks (the paid step on the server).
-  recText.textContent = "Uploading…";
+  resetRecUI();
+  recSession = null;
+  pendingRec = sess;     // capture is on disk; let the user add a glossary + decide
+  openPostRec();
+}
+
+// Upload the just-captured tracks. processNow=true → decode immediately;
+// false → park it (stored, decode later from the catch-up CTA).
+async function finishUpload(processNow) {
+  const sess = pendingRec; pendingRec = null;
+  if (!sess) return;
+  closePostRec();
+  const glossary = ($("#post-glossary").value || "").trim();
+  recBtn.disabled = true;
   let serverBase;
   try {
     serverBase = await invoke("upload_recording", {
       serverUrl: serverUrl(), token: authToken(),
       name: recName.value || "meeting",
       systemPath: sess.system_path, micPath: sess.mic_path,
+      glossary, process: processNow,
     });
-  } catch (e) { alert("Upload failed:\n" + e); resetRecUI(); return; }
-  resetRecUI();
-  recSession = null;
+  } catch (e) { alert("Upload failed:\n" + e); recBtn.disabled = false; return; }
+  recBtn.disabled = false;
+  $("#post-glossary").value = "";
   await loadMeetings();
   if (serverBase) openMeeting(serverBase);
+}
+
+function openPostRec() { const d = $("#postrec"); d.showModal ? d.showModal() : (d.hidden = false); }
+function closePostRec() { const d = $("#postrec"); d.close ? d.close() : (d.hidden = true); }
+
+// Start decoding a parked meeting (audio already uploaded).
+async function decodeMeeting(base) {
+  try { await api("/api/process/" + encodeURIComponent(base), { method: "POST" }); }
+  catch (e) { alert("Couldn’t start decoding:\n" + e.message); return; }
+  await loadMeetings();
+  openMeeting(base);
 }
 
 function resetRecUI() {
@@ -340,6 +375,8 @@ function resetRecUI() {
   recTimer.hidden = true;
 }
 recBtn.onclick = () => (recording ? stopRecording() : startRecording());
+$("#post-jump").onclick = () => finishUpload(true);
+$("#post-park").onclick = () => finishUpload(false);
 
 /* ── settings (server URL + token, stored locally) ───────────────────── */
 function openSettings() {

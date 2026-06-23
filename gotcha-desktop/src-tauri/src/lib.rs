@@ -149,10 +149,14 @@ fn upload_blocking(
     name: String,
     system_path: String,
     mic_path: String,
+    glossary: String,
+    process: bool,
 ) -> Result<String, String> {
     let url = format!("{}/api/upload", server_url.trim_end_matches('/'));
     let form = reqwest::blocking::multipart::Form::new()
         .text("name", name)
+        .text("glossary", glossary)
+        .text("process", if process { "true" } else { "false" })
         .file("system", &system_path)
         .map_err(|e| format!("reading system track: {e}"))?
         .file("mic", &mic_path)
@@ -213,9 +217,11 @@ async fn upload_recording(
     name: String,
     system_path: String,
     mic_path: String,
+    glossary: String,
+    process: bool,
 ) -> Result<String, String> {
     let base = tauri::async_runtime::spawn_blocking(move || {
-        upload_blocking(server_url, token, name, system_path, mic_path)
+        upload_blocking(server_url, token, name, system_path, mic_path, glossary, process)
     })
     .await
     .map_err(|e| e.to_string())??;

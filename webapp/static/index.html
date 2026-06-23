@@ -162,6 +162,23 @@
     </form>
   </dialog>
 
+  <!-- Post-recording: glossary + decide now-or-later -------------------- -->
+  <dialog id="postrec" class="settings">
+    <div class="settings-form">
+      <h3 class="settings-title">That’s a wrap 🎬</h3>
+      <p class="settings-hint">Got the whole thing on tape. Any names, acronyms or jargon
+        we might butcher? Drop them here so we spell them right.</p>
+      <label class="settings-field">
+        <span>Glossary for this meeting (optional)</span>
+        <textarea id="post-glossary" rows="2" placeholder="Worldpay, BookingPal, Aadhaar, 3DS…"></textarea>
+      </label>
+      <div class="settings-actions postrec-actions">
+        <button type="button" id="post-park" class="ghost-btn">Park it for now 🅿️</button>
+        <button type="button" id="post-jump" class="cta cta--sm">Ready to jump in! ⚡</button>
+      </div>
+    </div>
+  </dialog>
+
   <!-- Permission wizard (shown when capture is blocked) ------------------ -->
   <dialog id="perm" class="settings">
     <div class="settings-form">

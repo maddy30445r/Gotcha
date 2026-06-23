@@ -228,6 +228,44 @@ def _get_state(user, base):
                               {"state": "unknown", "error": None, "ts": 0.0}))
 
 
+def _meta_path(user, base):
+    return os.path.join(_out_dir(user), f"{base}.meta.json")
+
+
+def _read_meta(user, base):
+    p = _meta_path(user, base)
+    if os.path.exists(p):
+        try:
+            with open(p, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def _write_meta(user, base, **fields):
+    meta = _read_meta(user, base)
+    meta.update(fields)
+    with open(_meta_path(user, base), "w", encoding="utf-8") as f:
+        json.dump(meta, f)
+
+
+def _resolve_state(user, base):
+    """Durable state: prefer the live in-memory job, else infer from disk so a
+    'parked' or 'done' meeting survives a server restart (the job registry doesn't)."""
+    st = _get_state(user, base)
+    if st["state"] != "unknown":
+        return st
+    out = _out_dir(user)
+    if os.path.exists(os.path.join(out, f"{base}.report.md")):
+        return {"state": "done", "error": None}
+    if _read_meta(user, base).get("parked"):
+        return {"state": "parked", "error": None}
+    if os.path.exists(os.path.join(out, f"{base}.transcript.json")):
+        return {"state": "done", "error": None}
+    return {"state": "unknown", "error": None}
+
+
 def _ensure_mix(user, base):
     """Cached {base}.mix.wav for combined playback; None if both sources absent."""
     mix_path = _rec_path(user, base, ".mix.wav")
@@ -241,8 +279,13 @@ def _ensure_mix(user, base):
 
 def _worker():
     while True:
-        user, base, system_path, mic_path = _work_q.get()
+        user, base, system_path, mic_path, glossary = _work_q.get()
         cfg = _cfg_for(user)
+        # Per-meeting glossary terms augment the user's defaults — used both as
+        # Sarvam hotwords (source bias) and in the interpret prompt (fix proper nouns).
+        if glossary:
+            cfg.glossary = list(cfg.glossary) + list(glossary)
+            cfg.hotwords = list(cfg.hotwords) + list(glossary)
         try:
             # Re-check the cap at dequeue — a user can queue several uploads
             # before any of them bill, so the enqueue-time check isn't enough.
@@ -311,7 +354,7 @@ def list_meetings(user=Depends(auth)):
     out_dir = _out_dir(user)
     seen = {}
     for fn in os.listdir(out_dir):
-        for suffix in (".report.md", ".transcript.json"):
+        for suffix in (".report.md", ".transcript.json", ".meta.json"):
             if fn.endswith(suffix):
                 base = fn[: -len(suffix)]
                 e = seen.setdefault(base, {"base": base, "mtime": 0.0})
@@ -332,7 +375,7 @@ def list_meetings(user=Depends(auth)):
             "has_report": os.path.exists(os.path.join(out_dir, f"{base}.report.md")),
             "has_transcript": os.path.exists(os.path.join(out_dir, f"{base}.transcript.json")),
             "tracks": _tracks_for(user, base),
-            "state": _get_state(user, base)["state"],
+            "state": _resolve_state(user, base)["state"],
         })
     meetings.sort(key=lambda m: m["mtime"], reverse=True)
     return {
@@ -359,10 +402,10 @@ def get_meeting(base: str, user=Depends(auth)):
         with open(transcript_path, encoding="utf-8") as f:
             transcript = json.load(f)
 
-    state = _get_state(user, base)
-    # 404 only when there's truly nothing — no artifacts AND no live job. An
-    # in-flight meeting (queued/transcribing/…) returns 200 so the UI can show
-    # "working on it" and poll, instead of a misleading "no artifacts".
+    state = _resolve_state(user, base)
+    # 404 only when there's truly nothing — no artifacts AND no live/parked job.
+    # An in-flight or parked meeting returns 200 so the UI can show "working on
+    # it" / the catch-up CTA instead of a misleading "no artifacts".
     if report_html is None and transcript is None and state["state"] == "unknown":
         raise HTTPException(404, f"No artifacts for {base}")
 
@@ -440,12 +483,19 @@ async def _save_upload(upload: UploadFile, dest: str):
         raise HTTPException(400, f"{upload.filename!r} is not a valid WAV file")
 
 
+def _parse_glossary(raw):
+    """Split a user-typed glossary blob (commas / semicolons / newlines) into terms."""
+    if not raw:
+        return []
+    return [p.strip() for p in re.split(r"[\n,;]+", raw) if p.strip()]
+
+
 @app.post("/api/upload")
 async def upload(system: UploadFile = File(...), mic: UploadFile = File(...),
-                 name: str = Form("meeting"), user=Depends(auth)):
-    # Reject up front if the user is already over cap (cheap fail before writing).
-    if _used_min(user) >= _cap_min(user):
-        raise HTTPException(429, "Usage cap reached")
+                 name: str = Form("meeting"), glossary: str = Form(""),
+                 process: str = Form("true"), user=Depends(auth)):
+    process_now = str(process).strip().lower() in ("1", "true", "yes", "on")
+    terms = _parse_glossary(glossary)
 
     base = _new_base(user, name)
     system_path = _rec_path(user, base, ".system.wav")
@@ -453,15 +503,36 @@ async def upload(system: UploadFile = File(...), mic: UploadFile = File(...),
     sys_secs = await _save_upload(system, system_path)
     mic_secs = await _save_upload(mic, mic_path)
 
-    # Cap check against this meeting's (conservative) billed minutes.
-    if _used_min(user) + (sys_secs + mic_secs) / 60.0 > _cap_min(user):
-        for p in (system_path, mic_path):
-            if os.path.exists(p):
-                os.remove(p)
-        raise HTTPException(429, "This meeting would exceed your usage cap")
+    # Cap is about paid transcription minutes — only relevant when processing now.
+    # Parking just stores the audio (no paid work), so it's never blocked by cap;
+    # and a "process now" that would bust the cap is parked instead of discarded,
+    # so the user never loses a recording.
+    over_cap = _used_min(user) + (sys_secs + mic_secs) / 60.0 > _cap_min(user)
+    if process_now and not over_cap:
+        _write_meta(user, base, glossary=terms, parked=False, name=name)
+        _set_state(user, base, "queued")
+        _work_q.put((user, base, system_path, mic_path, terms))
+    else:
+        _write_meta(user, base, glossary=terms, parked=True, name=name)
+        _set_state(user, base, "parked")
+    return {"base": base}
 
+
+@app.post("/api/process/{base}")
+def process_meeting(base: str, user=Depends(auth)):
+    """Start (or resume) processing a parked meeting whose audio is already stored."""
+    base = _safe_base(base)
+    system_path = _rec_path(user, base, ".system.wav")
+    mic_path = _rec_path(user, base, ".mic.wav")
+    if not (os.path.exists(system_path) and os.path.exists(mic_path)):
+        raise HTTPException(404, "No recording to process")
+    billed_min = (_wav_seconds(system_path) + _wav_seconds(mic_path)) / 60.0
+    if _used_min(user) + billed_min > _cap_min(user):
+        raise HTTPException(429, "This meeting would exceed your usage cap")
+    terms = _read_meta(user, base).get("glossary", [])
+    _write_meta(user, base, parked=False)
     _set_state(user, base, "queued")
-    _work_q.put((user, base, system_path, mic_path))
+    _work_q.put((user, base, system_path, mic_path, terms))
     return {"base": base}
 
 

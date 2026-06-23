@@ -64,14 +64,16 @@ def H(tok):
     return {"Authorization": f"Bearer {tok}"}
 
 
-def upload(tok, name="standup"):
+def upload(tok, name="standup", process=True, glossary=""):
     sysp, micp = os.path.join(TMP, "s.wav"), os.path.join(TMP, "m.wav")
     make_wav(sysp); make_wav(micp)
     with open(sysp, "rb") as sf, open(micp, "rb") as mf:
         return client.post("/api/upload",
                            files={"system": ("a.system.wav", sf, "audio/wav"),
                                   "mic": ("a.mic.wav", mf, "audio/wav")},
-                           data={"name": name}, headers=H(tok))
+                           data={"name": name, "process": str(process).lower(),
+                                 "glossary": glossary},
+                           headers=H(tok))
 
 
 def wait_done(tok, base, timeout=10):
@@ -113,8 +115,25 @@ with open(bad, "rb") as bf, open(bad, "rb") as bf2:
                             "mic": ("x.mic.wav", bf2, "audio/wav")},
                      data={"name": "junk"}, headers=H("alice-tok"))
 check("non-WAV rejected (400)", rb.status_code == 400)
-check("zero-cap user blocked (429)", upload("zero-tok").status_code == 429)
+# Over-cap now PARKS (recording preserved) instead of 429 at upload; the cap is
+# enforced when the user tries to decode it.
+rz = upload("zero-tok")
+zbase = rz.json().get("base", "")
+check("zero-cap upload parks (not lost)", rz.status_code == 200)
+check("  …and is marked parked", client.get(f"/api/meetings/{zbase}", headers=H("zero-tok")).json()["state"] == "parked")
+check("zero-cap decode blocked (429)", client.post(f"/api/process/{zbase}", headers=H("zero-tok")).status_code == 429)
 check("path traversal collapses to 404", client.get("/api/meetings/..%2f..%2fetc", headers=H("alice-tok")).status_code == 404)
+
+print("PARK + PROCESS + GLOSSARY")
+rp = upload("alice-tok", name="parked_call", process=False, glossary="Worldpay, BookingPal")
+pbase = rp.json().get("base", "")
+check("park upload accepted", rp.status_code == 200)
+plist = client.get("/api/meetings", headers=H("alice-tok")).json()["meetings"]
+pe = next((m for m in plist if m["base"] == pbase), None)
+check("parked meeting listed as 'parked'", bool(pe) and pe["state"] == "parked" and not pe["has_report"])
+check("parked get_meeting is 200 (not 404)", client.get(f"/api/meetings/{pbase}", headers=H("alice-tok")).status_code == 200)
+check("decode parked → 200", client.post(f"/api/process/{pbase}", headers=H("alice-tok")).status_code == 200)
+check("decoded parked → done", wait_done("alice-tok", pbase) == "done")
 
 print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
 sys.exit(1 if FAIL else 0)
