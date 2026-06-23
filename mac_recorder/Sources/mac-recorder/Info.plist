@@ -6,6 +6,11 @@
     <string>com.devslane.meetingrecorder</string>
     <key>CFBundleName</key>
     <string>mac-recorder</string>
+    <!-- Run UI-less: no Dock icon, never becomes foreground. Without this the
+         headless helper tries to activate as a foreground app (no window) and
+         macOS bounces the parent (Gotcha) Dock icon while recording. -->
+    <key>LSUIElement</key>
+    <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>Records your microphone so your side of the meeting is transcribed.</string>
 </dict>

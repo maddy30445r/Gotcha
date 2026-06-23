@@ -227,6 +227,8 @@ async function openMeeting(base, quiet) {
   reportEl.innerHTML = html;
   revealIn(reportEl);
 
+  primePlayer();  // ready the audio so Play works without needing a timestamp
+
   const decodeBtn = $("#decode-btn");
   if (decodeBtn) decodeBtn.onclick = () => decodeMeeting(base);
 
@@ -255,24 +257,51 @@ function resolveTrack(mode) {
   return t.mix ? "mix" : t.single ? "single" : t.system ? "system" : t.mic ? "mic" : null;
 }
 
+function trackSrc(track) {
+  return `${serverUrl()}/api/audio/${encodeURIComponent(current.base)}/${track}`
+    + `?token=${encodeURIComponent(authToken())}`;
+}
+
+// Point the player at a track. seekSecs: jump there once loaded; autoplay: play after.
+function loadTrack(track, { seekSecs = null, autoplay = false } = {}) {
+  if (!current || !track) return;
+  const src = trackSrc(track);
+  const apply = () => {
+    if (seekSecs != null) { try { player.currentTime = +seekSecs; } catch (_) {} }
+    if (autoplay) player.play();
+  };
+  if (player.dataset.src !== src) {
+    player.dataset.src = src; player.src = src;
+    if (seekSecs != null || autoplay) player.addEventListener("loadedmetadata", apply, { once: true });
+    player.load();
+  } else apply();
+}
+
+// Prime the player when a meeting opens so the native play button works even
+// without clicking a citation (and for reports that have no citations at all).
+function primePlayer() {
+  lastClip = null;
+  document.querySelectorAll(".pill.playing").forEach((c) => c.classList.remove("playing"));
+  player.pause();
+  const track = resolveTrack(trackMode);
+  if (!track) {
+    player.removeAttribute("src"); player.dataset.src = ""; player.load();
+    playerLabel.textContent = "No audio for this meeting.";
+    return;
+  }
+  loadTrack(track);  // set source, ready to play from the start
+  playerLabel.textContent = `${current.base} · ${track}`;
+}
+
 function seekTo(ts, chip) {
   if (!current) return;
-  lastClip = { ts, chip };
   const track = resolveTrack(trackMode);
   if (!track) { playerLabel.textContent = "No audio was recorded for this meeting."; return; }
-
+  lastClip = { ts, chip };
   document.querySelectorAll(".pill.playing").forEach((c) => c.classList.remove("playing"));
   if (chip) chip.classList.add("playing");
   playerLabel.textContent = `${current.base} · ${track} · ${(+ts).toFixed(1)}s`;
-
-  const src = `${serverUrl()}/api/audio/${encodeURIComponent(current.base)}/${track}`
-    + `?token=${encodeURIComponent(authToken())}`;
-  const go = () => { try { player.currentTime = +ts; } catch (_) {} player.play(); };
-  if (player.dataset.src !== src) {
-    player.dataset.src = src; player.src = src;
-    player.addEventListener("loadedmetadata", go, { once: true });
-    player.load();
-  } else go();
+  loadTrack(track, { seekSecs: +ts, autoplay: true });
 }
 
 reportEl.addEventListener("click", (ev) => {
@@ -287,7 +316,16 @@ document.querySelectorAll("#track-seg button").forEach((btn) => {
     document.querySelectorAll("#track-seg button").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     trackMode = btn.dataset.mode;
-    if (lastClip) seekTo(lastClip.ts, lastClip.chip);
+    if (!current) return;
+    const track = resolveTrack(trackMode);
+    if (!track) return;
+    // Re-point to the chosen side, preserving position + play state — no citation needed.
+    const at = player.currentTime || 0;
+    const wasPlaying = !player.paused;
+    loadTrack(track, { seekSecs: at, autoplay: wasPlaying });
+    playerLabel.textContent = lastClip
+      ? `${current.base} · ${track} · ${(+lastClip.ts).toFixed(1)}s`
+      : `${current.base} · ${track}`;
   };
 });
 
