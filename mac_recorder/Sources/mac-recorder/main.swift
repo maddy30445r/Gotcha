@@ -1,5 +1,14 @@
+import AppKit
 import Foundation
 import MeetingCaptureKit
+
+// Run fully headless. This binary links ScreenCaptureKit/AVFoundation (→ AppKit), so as
+// a spawned process it otherwise acquires a Dock presence and bounces the parent
+// (Gotcha) icon. `LSUIElement` in the embedded Info.plist does NOT help: that key is only
+// read by LaunchServices when launching a real `.app` bundle, and we're a bare executable
+// started via posix_spawn. The reliable fix is to set the activation policy in code, on
+// the main thread, before anything else.
+NSApplication.shared.setActivationPolicy(.prohibited)
 
 // CLI shell around MeetingCaptureKit. Protocol contract for the Python launcher:
 //   stdout "RECORDING"           — emitted once capture has started

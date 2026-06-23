@@ -262,19 +262,37 @@ function trackSrc(track) {
     + `?token=${encodeURIComponent(authToken())}`;
 }
 
-// Point the player at a track. seekSecs: jump there once loaded; autoplay: play after.
+let pendingMeta = null;  // a not-yet-fired loadedmetadata seek handler from a prior load
+
+// Point the player at a track. seekSecs: jump there once seekable; autoplay: play after.
+// Seek and play are decoupled so a stale handler from a previous meeting/track can never
+// fire against the new source, and an interrupted play() never leaves a phantom state.
 function loadTrack(track, { seekSecs = null, autoplay = false } = {}) {
   if (!current || !track) return;
+  // Drop any seek handler still pending from an earlier load — it belongs to old audio.
+  if (pendingMeta) { player.removeEventListener("loadedmetadata", pendingMeta); pendingMeta = null; }
+
   const src = trackSrc(track);
-  const apply = () => {
-    if (seekSecs != null) { try { player.currentTime = +seekSecs; } catch (_) {} }
-    if (autoplay) player.play();
-  };
   if (player.dataset.src !== src) {
-    player.dataset.src = src; player.src = src;
-    if (seekSecs != null || autoplay) player.addEventListener("loadedmetadata", apply, { once: true });
-    player.load();
-  } else apply();
+    player.dataset.src = src; player.src = src; player.load();
+  }
+
+  if (seekSecs != null) {
+    const applySeek = () => { try { player.currentTime = +seekSecs; } catch (_) {} };
+    if (player.readyState >= 1) applySeek();          // metadata already available
+    else {
+      pendingMeta = () => {
+        pendingMeta = null;
+        if (player.dataset.src === src) applySeek();  // guard: only the intended source
+      };
+      player.addEventListener("loadedmetadata", pendingMeta, { once: true });
+    }
+  }
+
+  if (autoplay) {
+    const p = player.play();                          // kicks the fetch under preload="none"
+    if (p && p.catch) p.catch(() => {});              // swallow AbortError on rapid switches
+  }
 }
 
 // Prime the player when a meeting opens so the native play button works even
@@ -285,6 +303,7 @@ function primePlayer() {
   player.pause();
   const track = resolveTrack(trackMode);
   if (!track) {
+    if (pendingMeta) { player.removeEventListener("loadedmetadata", pendingMeta); pendingMeta = null; }
     player.removeAttribute("src"); player.dataset.src = ""; player.load();
     playerLabel.textContent = "No audio for this meeting.";
     return;
