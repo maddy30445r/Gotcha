@@ -7,5 +7,6 @@ usage/
 users.json
 __pycache__/
 mac_recorder/.build/
+gotcha-desktop/src-tauri/binaries/
 HANDOFF.md
 .claude/

@@ -36,9 +36,17 @@ fn recorder_bin() -> PathBuf {
     if let Ok(p) = std::env::var("GOTCHA_RECORDER_BIN") {
         return PathBuf::from(p);
     }
-    // DEV path: <project>/mac_recorder/.build/release/mac-recorder.
-    // TODO(Phase 3): bundle as a Tauri sidecar and resolve via resource_dir for
-    // the shipped, notarized app.
+    // Bundled sidecar: Tauri places the externalBin next to the app executable
+    // (Contents/MacOS/mac-recorder), so it ships inside Gotcha.app and runs with
+    // Gotcha's own TCC identity. This is the path in a distributed build.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(side) = exe.parent().map(|d| d.join("mac-recorder")) {
+            if side.exists() {
+                return side;
+            }
+        }
+    }
+    // Dev fallback: the binary built in the repo (used by `tauri dev`).
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../mac_recorder/.build/release/mac-recorder")
 }
