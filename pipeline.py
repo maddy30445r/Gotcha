@@ -74,8 +74,10 @@ class UserConfig:
     your_name: str = "Madhur"
     glossary: list = field(default_factory=lambda: list(DEFAULT_GLOSSARY))
     hotwords: list = field(default_factory=lambda: list(DEFAULT_HOTWORDS))
-    provider: str = "gemini"            # "gemini" today; "anthropic"/"vertex" later
-    model: str = "gemini-3.5-flash"     # cheap + good with the strict prompt
+    # provider: "groq" (free, robust — testing default) | "anthropic" (no-train,
+    # for real meetings) | "gemini". Real meetings MUST use a no-train tier.
+    provider: str = "groq"
+    model: str = "llama-3.3-70b-versatile"
 
 
 def default_config():
@@ -83,8 +85,8 @@ def default_config():
     can be swapped without touching code (e.g. GOTCHA_LLM_MODEL=...)."""
     return UserConfig(
         your_name=os.environ.get("GOTCHA_YOUR_NAME", "Madhur"),
-        provider=os.environ.get("GOTCHA_LLM_PROVIDER", "gemini"),
-        model=os.environ.get("GOTCHA_LLM_MODEL", "gemini-3.5-flash"),
+        provider=os.environ.get("GOTCHA_LLM_PROVIDER", "groq"),
+        model=os.environ.get("GOTCHA_LLM_MODEL", "llama-3.3-70b-versatile"),
     )
 
 
@@ -215,32 +217,53 @@ they personally now have to do.
 1. Correct obvious ASR errors using KNOWN TERMS. Only when confident; never invent.
 {roles_line}
 
-## Output — exactly these three sections
+## Output — exactly these four sections
 ### 1. Meeting summary & decisions
 3–6 plain sentences. Lead with what matters most to {YOUR_NAME}.
 
 ### 2. What the lead really meant
 Only for indirect/vague/implied lines. Quote briefly (<15 words) then give the
-plain meaning. If nothing implicit, write "Nothing implicit — the lead was direct
+plain meaning. List EVERY indirect/implied line as its own item — do not omit or
+merge them. If nothing implicit, write "Nothing implicit — the lead was direct
 throughout." Do not manufacture hidden meaning.
 
 ### 3. {YOUR_NAME}'s action items
-A list. ONLY {YOUR_NAME}'s own tasks. For each: the task in one line; **priority**
-if stated/implied; **why** in a few words; **source** = timestamp + short quote.
-Flag ambiguous ownership with "(verify — unclear if yours)". Never assign
-{YOUR_NAME} someone else's task.
+A list. ONLY {YOUR_NAME}'s own tasks. Never assign {YOUR_NAME} someone else's
+task. Flag ambiguous ownership with "(verify — unclear if yours)". Keep distinct
+tasks as separate action items — do NOT merge a setup/config step and a creation
+step into one unless they are genuinely the same action. Completeness matters:
+prefer more specific items over fewer broad ones. For each item, use these
+sub-bullets:
+- the task in one line (the top bullet)
+- **Priority:** if stated/implied
+- **Why:** in a few words
+- **How:** the concrete steps or exact parameters to use, pulled VERBATIM from the
+  transcript — a short list or `key: value` details (e.g. the exact IDs/flags/
+  values/commands the lead specified). OMIT this **How:** sub-bullet entirely if
+  the transcript states no specifics. Never invent steps; under-reporting beats
+  inventing.
+- **Source:** timestamp + short quote
+
+### 4. Open questions & things to verify
+Anything left unresolved, ambiguous in ownership, or that {YOUR_NAME} should
+confirm with the lead before acting. One line each + a [timestamp] + short quote.
+If there is nothing open, write exactly: "Nothing open — everything was clear."
+Do not manufacture doubts.
 
 ## CITATION RULES — STRICT (this is the trust mechanism)
 - Use a timestamp that appears VERBATIM in this allowlist: {valid_ts}. NEVER
   invent, estimate, compute, or interpolate a timestamp.
+- ALWAYS write a timestamp as [N.Ns] with a trailing "s" — e.g. [90.71s], not
+  [90.71]. This exact format is required for the clickable audio link to work.
 - Quote text VERBATIM from inside that same entry. Do not merge words across
   entries. Keep quotes under 15 words.
 - Before finalizing, re-check every timestamp against the allowlist and fix any
   that aren't on it. This self-check is mandatory.
 
 ## Rules
-- Every action item and every "lead meant" claim MUST cite timestamp + short quote.
-- Do not hallucinate tasks/deadlines/meanings. Under-reporting beats inventing.
+- Every action item, every "lead meant" claim, and every open question MUST cite
+  timestamp + short quote. **How:** steps must come straight from the cited entry.
+- Do not hallucinate tasks/deadlines/meanings/steps. Under-reporting beats inventing.
 - Address {YOUR_NAME} directly, warm and concise.
 """.strip()
 
@@ -265,14 +288,28 @@ def interpret(entries, two_track=False, *, cfg=None):
     user_msg = ("Here is the diarized transcript. Produce the three sections.\n\n"
                 + transcript_text)
 
+    if cfg.provider == "groq":
+        return _interpret_groq(system_prompt, user_msg, cfg.model)
+    if cfg.provider == "anthropic":
+        return _interpret_anthropic(system_prompt, user_msg, cfg.model)
     if cfg.provider == "gemini":
         return _interpret_gemini(system_prompt, user_msg, cfg.model)
-    # TODO(privacy): add _interpret_anthropic / _interpret_vertex for real
-    # meetings (no-train tiers); the prompt + retry logic are provider-agnostic.
     sys.exit(f"Unknown LLM provider: {cfg.provider!r}")
 
 
+def _is_permanent_llm_error(msg):
+    """A 429 that retrying will NEVER clear — the account is out of money/quota,
+    not momentarily rate-limited. Backing off just hangs the job ~60s before it
+    errors anyway, so fail fast with a clear message instead."""
+    low = msg.lower()
+    return ("depleted" in low or "billing" in low
+            or "quota" in low or "insufficient" in low
+            or "exceeded your current quota" in low)
+
+
 def _is_transient_llm_error(msg):
+    if _is_permanent_llm_error(msg):
+        return False
     return ("429" in msg or "RESOURCE_EXHAUSTED" in msg
             or "503" in msg or "UNAVAILABLE" in msg
             or "500" in msg or "INTERNAL" in msg)
@@ -300,12 +337,75 @@ def _interpret_gemini(system_prompt, user_msg, model):
             return resp.text
         except Exception as ex:
             msg = str(ex)
+            if _is_permanent_llm_error(msg):
+                # Out of credits/quota — retrying can't help. Fail fast with a
+                # message the UI can show as-is.
+                sys.exit("LLM unavailable: account out of credits/quota. "
+                         "Top up or swap GEMINI_API_KEY, then re-interpret "
+                         "(the transcript is saved, so it's free).")
             if _is_transient_llm_error(msg):
                 w = min(60, 2 ** attempt)
                 print(f"[transient error, retry in {w}s: {msg[:80]}]", file=sys.stderr)
                 time.sleep(w); continue
             sys.exit(f"Interpretation error: {ex}")
     sys.exit("Gave up after retries")
+
+
+def _retry_llm(call, swap_hint):
+    """Shared 5-attempt backoff around an LLM call() -> str. Reuses the
+    provider-agnostic error helpers; swap_hint names the key to change on a
+    permanent (out-of-quota) failure so the UI message is actionable."""
+    for attempt in range(5):
+        try:
+            return call()
+        except Exception as ex:
+            msg = str(ex)
+            if _is_permanent_llm_error(msg):
+                sys.exit("LLM unavailable: account out of credits/quota. "
+                         f"Top up or swap {swap_hint}, then re-interpret "
+                         "(the transcript is saved, so it's free).")
+            if _is_transient_llm_error(msg):
+                w = min(60, 2 ** attempt)
+                print(f"[transient error, retry in {w}s: {msg[:80]}]", file=sys.stderr)
+                time.sleep(w); continue
+            sys.exit(f"Interpretation error: {ex}")
+    sys.exit("Gave up after retries")
+
+
+def _interpret_groq(system_prompt, user_msg, model):
+    """Groq free tier (Llama-class models). OpenAI-chat shaped. May train on
+    inputs — testing only; real meetings must use a no-train provider."""
+    from groq import Groq
+    key = os.environ.get("GROQ_API_KEY")
+    if not key:
+        sys.exit("Set GROQ_API_KEY")
+    client = Groq(api_key=key)
+
+    def call():
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "system", "content": system_prompt},
+                      {"role": "user", "content": user_msg}],
+            temperature=0.3, max_tokens=4000)
+        return resp.choices[0].message.content
+    return _retry_llm(call, "GROQ_API_KEY")
+
+
+def _interpret_anthropic(system_prompt, user_msg, model):
+    """Anthropic Claude (no-train tier) — the privacy-safe option for real
+    meetings. e.g. model=claude-haiku-4-5."""
+    import anthropic
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        sys.exit("Set ANTHROPIC_API_KEY")
+    client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
+
+    def call():
+        resp = client.messages.create(
+            model=model, max_tokens=4000, temperature=0.3,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_msg}])
+        return next((b.text for b in resp.content if b.type == "text"), "")
+    return _retry_llm(call, "ANTHROPIC_API_KEY")
 
 
 def _norm_text(s):

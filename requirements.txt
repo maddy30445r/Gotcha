@@ -1,5 +1,7 @@
 sarvamai
-google-genai
+groq               # interpret() default (free testing tier)
+anthropic          # interpret() no-train tier for real meetings
+google-genai       # interpret() alternate provider
 python-dotenv
 webrtcvad-wheels   # mic-track silence trimming (drop-in `import webrtcvad`)
 # Echo cancellation is done natively at capture time (macOS Voice Processing in

@@ -135,5 +135,20 @@ check("parked get_meeting is 200 (not 404)", client.get(f"/api/meetings/{pbase}"
 check("decode parked → 200", client.post(f"/api/process/{pbase}", headers=H("alice-tok")).status_code == 200)
 check("decoded parked → done", wait_done("alice-tok", pbase) == "done")
 
+print("DELETE")
+# Bob must not be able to delete Alice's meeting (per-user isolation = 404).
+check("bob cannot delete alice's meeting (404)",
+      client.delete(f"/api/meetings/{base}", headers=H("bob-tok")).status_code == 404)
+check("alice still has her meeting after bob's attempt",
+      client.get(f"/api/meetings/{base}", headers=H("alice-tok")).status_code == 200)
+# Alice deletes her own → gone from list + report 404 afterwards.
+check("alice deletes her meeting (200)",
+      client.delete(f"/api/meetings/{base}", headers=H("alice-tok")).status_code == 200)
+check("deleted meeting is 404", client.get(f"/api/meetings/{base}", headers=H("alice-tok")).status_code == 404)
+check("deleted meeting drops from list",
+      not any(m["base"] == base for m in client.get("/api/meetings", headers=H("alice-tok")).json()["meetings"]))
+check("deleting a missing meeting → 404",
+      client.delete(f"/api/meetings/{base}", headers=H("alice-tok")).status_code == 404)
+
 print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
 sys.exit(1 if FAIL else 0)

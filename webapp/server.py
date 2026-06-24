@@ -53,9 +53,10 @@ USERS_FILE = os.environ.get("GOTCHA_USERS_FILE", os.path.join(ROOT, "users.json"
 MAX_UPLOAD_BYTES = int(os.environ.get("GOTCHA_MAX_UPLOAD_MB", "300")) * 1024 * 1024
 DEFAULT_CAP_MIN = float(os.environ.get("GOTCHA_DEFAULT_CAP_MIN", "120"))
 
-# Turn a transcript citation like "[33.84s]" into a clickable span (raw markdown;
-# python-markdown passes the inline HTML through).
-CITE_RE = re.compile(r"\[(\d+(?:\.\d+)?)\s*s\]")
+# Turn a transcript citation like "[33.84s]" (the trailing "s" is optional — the
+# LLM is inconsistent) into a clickable span (raw markdown; python-markdown
+# passes the inline HTML through).
+CITE_RE = re.compile(r"\[(\d+(?:\.\d+)?)\s*s?\]")
 
 
 def _linkify_citations(md_text):
@@ -262,7 +263,10 @@ def _resolve_state(user, base):
     if _read_meta(user, base).get("parked"):
         return {"state": "parked", "error": None}
     if os.path.exists(os.path.join(out, f"{base}.transcript.json")):
-        return {"state": "done", "error": None}
+        # Transcript saved but no report → interpret never finished (LLM outage /
+        # out of credits / restart mid-interpret). It's free to re-interpret.
+        return {"state": "error",
+                "error": "Interpretation didn't finish — re-interpret to retry (free)."}
     return {"state": "unknown", "error": None}
 
 
@@ -543,6 +547,60 @@ def process_meeting(base: str, user=Depends(auth)):
     _set_state(user, base, "queued")
     _work_q.put((user, base, system_path, mic_path, terms))
     return {"base": base}
+
+
+def _reinterpret_job(user, base, terms):
+    """Re-run ONLY the interpret step on a saved transcript. Free (no Sarvam), so
+    it doesn't touch the cap or the Sarvam-serializing work queue — runs in its own
+    thread. Recovers a meeting whose interpret failed (e.g. LLM outage / out of
+    credits) without re-recording or re-transcribing."""
+    cfg = _cfg_for(user)
+    if terms:
+        cfg.glossary = list(cfg.glossary) + list(terms)
+    try:
+        _set_state(user, base, "interpreting")
+        path = os.path.join(_out_dir(user), f"{base}.transcript.json")
+        entries, two_track = pipeline._load_saved_transcript(path, cfg=cfg)
+        pipeline._interpret_and_save(entries, two_track, _out_dir(user), base, cfg=cfg)
+        _set_state(user, base, "done")
+    except BaseException as ex:  # incl. SystemExit (pipeline calls sys.exit)
+        _set_state(user, base, "error", str(ex) or repr(ex))
+
+
+@app.post("/api/reinterpret/{base}")
+def reinterpret_meeting(base: str, user=Depends(auth)):
+    """Re-interpret an already-transcribed meeting for free (skips Sarvam). Use after
+    fixing an interpret failure — out of LLM credits, a bad prompt, a glossary tweak."""
+    base = _safe_base(base)
+    if not os.path.exists(os.path.join(_out_dir(user), f"{base}.transcript.json")):
+        raise HTTPException(404, "No saved transcript to re-interpret")
+    terms = _read_meta(user, base).get("glossary", [])
+    _set_state(user, base, "interpreting")
+    threading.Thread(target=_reinterpret_job, args=(user, base, terms), daemon=True).start()
+    return {"base": base, "state": "interpreting"}
+
+
+@app.delete("/api/meetings/{base}")
+def delete_meeting(base: str, user=Depends(auth)):
+    """Permanently delete one meeting's audio + report + transcript (this user's
+    namespace only). Irreversible. Usage already billed for it is NOT refunded —
+    Sarvam was already paid — so the cap ledger is left untouched."""
+    base = _safe_base(base)
+    paths = [os.path.join(_out_dir(user), base + s)
+             for s in (".report.md", ".transcript.json", ".meta.json")]
+    paths += [_rec_path(user, base, s)
+              for s in (".system.wav", ".mic.wav", ".mix.wav")]
+    removed = 0
+    for p in paths:
+        try:
+            os.remove(p); removed += 1
+        except OSError:
+            pass
+    with _jobs_lock:
+        _jobs.pop((_uid(user), base), None)
+    if not removed:
+        raise HTTPException(404, "No such meeting")
+    return {"deleted": base, "files_removed": removed}
 
 
 # ---------------------------------------------------------------------------

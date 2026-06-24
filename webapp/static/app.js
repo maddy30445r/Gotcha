@@ -54,10 +54,10 @@ const pillHTML = (ts) =>
 // escape → bold → turn [Ns] citations into receipt pills
 function mdInline(str) {
   let h = esc(str).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
-  return h.replace(/\[(\d+(?:\.\d+)?)\s*s\]/g, (_, ts) => pillHTML(ts));
+  return h.replace(/\[(\d+(?:\.\d+)?)\s*s?\]/g, (_, ts) => pillHTML(ts));
 }
 const stripStars = (s) => s.replace(/^\s*\*\*|\*\*\s*$/g, "").trim();
-const tsIn = (s) => { const m = s.match(/\[(\d+(?:\.\d+)?)\s*s\]/); return m ? m[1] : null; };
+const tsIn = (s) => { const m = s.match(/\[(\d+(?:\.\d+)?)\s*s?\]/); return m ? m[1] : null; };
 
 /* ── report parser: report_md → structured cards ─────────────────────── */
 function topBullets(body) {
@@ -111,13 +111,20 @@ function renderActions(body) {
     const vm = task.match(/\((verify[^)]*)\)/i);
     if (vm) { verify = vm[1]; task = task.replace(vm[0], "").trim(); }
 
+    // How is often emitted as a header with nested sub-bullets (one param per
+    // line), so collect every line after **How:** until the next known key.
     let level = "", why = "", source = "";
+    const howLines = []; let collectingHow = false;
     for (const s of it.subs) {
       let m;
-      if ((m = s.match(/^\*\*\s*Priority:?\s*\*\*\s*(.*)/i))) level = m[1].trim();
-      else if ((m = s.match(/^\*\*\s*Why:?\s*\*\*\s*(.*)/i))) why = m[1].trim();
-      else if ((m = s.match(/^\*\*\s*Source:?\s*\*\*\s*(.*)/i))) source = m[1].trim();
+      if ((m = s.match(/^\*\*\s*Priority:?\s*\*\*\s*(.*)/i))) { level = m[1].trim(); collectingHow = false; }
+      else if ((m = s.match(/^\*\*\s*Why:?\s*\*\*\s*(.*)/i))) { why = m[1].trim(); collectingHow = false; }
+      else if ((m = s.match(/^\*\*\s*Source:?\s*\*\*\s*(.*)/i))) { source = m[1].trim(); collectingHow = false; }
+      else if ((m = s.match(/^\*\*\s*How:?\s*\*\*\s*(.*)/i))) { collectingHow = true; if (m[1].trim()) howLines.push(m[1].trim()); }
+      else if (collectingHow && s.trim()) { howLines.push(s.trim()); }
     }
+    // one param per line; also fold "key: value; key: value" inline lists
+    const howHTML = howLines.map((l) => mdInline(l).replace(/;\s+/g, "<br>")).join("<br>");
     const lvlWord = (level.match(/^(High|Medium|Low)/i) || [, ""])[1];
     const pclass = PCLASS[lvlWord.toLowerCase()] || "prio--med";
     const ts = tsIn(source);
@@ -133,18 +140,41 @@ function renderActions(body) {
           </div>
           ${why ? `<p class="act-why">${mdInline(why)}</p>` : ""}
           ${ts ? `<div class="act-source">${pillHTML(ts)}<span class="act-quote">“${esc(quote)}”</span></div>` : ""}
+          ${howHTML ? `<details class="act-how" open><summary>how to do it</summary><div class="act-how-body">${howHTML}</div></details>` : ""}
         </div>
       </div>`;
   }).join("");
 }
 
-const EYEBROW = { summary: "the gist", decode: "reading between the lines", actions: "your move" };
+function renderQuestions(body) {
+  const items = topBullets(body);
+  if (!items.length) {  // "Nothing open — everything was clear."
+    return `<p class="decode-none">${esc(body.trim())}</p>`;
+  }
+  return items.map((it) => {
+    const ts = tsIn(it.head);
+    let q = it.head.replace(/\bat\s*\[[^\]]*\]/i, "").replace(/\[[^\]]*\]/, "");
+    q = stripStars(q).replace(/^[“"']|[”"']$/g, "").trim();
+    let quote = "";
+    for (const s of it.subs) {
+      const m = s.match(/^\*\*\s*Source:?\s*\*\*\s*(.*)/i);
+      if (m) { quote = m[1].replace(/\[[^\]]*\]/, "").trim().replace(/^[“"']|[”"']$/g, ""); break; }
+    }
+    return `<div class="q-card">
+        <p class="q-text">${mdInline(q)}</p>
+        ${ts ? `<div class="act-source">${pillHTML(ts)}${quote ? `<span class="act-quote">“${esc(quote)}”</span>` : ""}</div>` : ""}
+      </div>`;
+  }).join("");
+}
+
+const EYEBROW = { summary: "the gist", decode: "reading between the lines", actions: "your move", questions: "before you act" };
 function classify(title, idx) {
   const t = title.toLowerCase();
   if (/really meant|lead/.test(t)) return "decode";
+  if (/open question|to verify|unresolved|to confirm/.test(t)) return "questions";
   if (/action item|your task|to.?do/.test(t)) return "actions";
   if (/summary|decision/.test(t)) return "summary";
-  return ["summary", "decode", "actions"][idx] || "summary";
+  return ["summary", "decode", "actions", "questions"][idx] || "summary";
 }
 
 function renderReport(md) {
@@ -161,6 +191,7 @@ function renderReport(md) {
     const kind = classify(rawTitle, i);
     const inner = kind === "decode" ? renderDecode(body)
       : kind === "actions" ? renderActions(body)
+      : kind === "questions" ? renderQuestions(body)
       : renderSummary(body);
     html += `<section class="section reveal">
         <p class="section-eyebrow">${EYEBROW[kind]}</p>
@@ -191,8 +222,10 @@ async function loadMeetings(autoOpen) {
     li.innerHTML =
       `<div class="mi-name">${esc(m.base)}</div>` +
       `<div class="mi-meta">${badge(m.state, m.has_report)}` +
-      `${Object.keys(m.tracks).length ? '<span class="badge audio">audio</span>' : ""}</div>`;
+      `${Object.keys(m.tracks).length ? '<span class="badge audio">audio</span>' : ""}</div>` +
+      `<button class="mi-del" title="Delete meeting" aria-label="Delete meeting">✕</button>`;
     li.onclick = () => openMeeting(m.base);
+    li.querySelector(".mi-del").onclick = (e) => { e.stopPropagation(); deleteMeeting(m.base); };
     listEl.appendChild(li);
   }
   if (autoOpen && !current && data.meetings[0]) openMeeting(data.meetings[0].base, true);
@@ -206,13 +239,22 @@ async function openMeeting(base, quiet) {
   current = { base, transcript: m.transcript || [], tracks: m.tracks || {}, your_name: m.your_name };
   [...listEl.children].forEach((li) => li.classList.toggle("active", li.dataset.base === base));
 
+  // Re-interpret is possible whenever the transcript was saved (the paid step is
+  // done) — recovers a failed/old report for free, no re-record, no Sarvam.
+  const canReinterpret = (m.transcript || []).length > 0;
+
   let html = "";
-  if (m.state === "error") html += `<div class="status-line error">Couldn’t finish this one: ${esc(m.error || "unknown error")}</div>`;
-  else if (PROCESSING.has(m.state)) html += `<div class="status-line">Working on it — ${esc(m.state)}. This takes a few minutes.</div>`;
+  if (m.state === "error") {
+    html += `<div class="status-line error">Couldn’t finish this one: ${esc(m.error || "unknown error")}</div>`;
+    if (canReinterpret) html += `<div class="error-actions"><button class="link-btn" id="reinterpret-btn">Re-interpret (free)</button></div>`;
+  } else if (PROCESSING.has(m.state)) {
+    html += `<div class="status-line">Working on it — ${esc(m.state)}. This takes a few minutes.</div>`;
+  }
 
   if (m.report_md) {
     try { html += renderReport(m.report_md); }
     catch (_) { html += `<div class="report-fallback">${m.report_html || ""}</div>`; }
+    if (canReinterpret) html += `<div class="report-actions"><button class="link-btn" id="reinterpret-btn">Re-interpret</button></div>`;
   } else if (m.report_html) {
     html += `<div class="report-fallback">${m.report_html}</div>`;
   } else if (m.state === "parked") {
@@ -231,6 +273,9 @@ async function openMeeting(base, quiet) {
 
   const decodeBtn = $("#decode-btn");
   if (decodeBtn) decodeBtn.onclick = () => decodeMeeting(base);
+
+  const reBtn = $("#reinterpret-btn");
+  if (reBtn) reBtn.onclick = () => reinterpretMeeting(base);
 
   if (PROCESSING.has(m.state)) pollMeeting(base);
   if (!quiet) document.getElementById("workspace").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -421,6 +466,27 @@ async function decodeMeeting(base) {
   catch (e) { alert("Couldn’t start decoding:\n" + e.message); return; }
   await loadMeetings();
   openMeeting(base);
+}
+
+// Re-run ONLY the interpret step on a saved transcript (free — no Sarvam). Used to
+// recover a meeting whose interpret failed, or to refresh an existing report.
+async function reinterpretMeeting(base) {
+  try { await api("/api/reinterpret/" + encodeURIComponent(base), { method: "POST" }); }
+  catch (e) { alert("Couldn’t start re-interpret:\n" + e.message); return; }
+  await loadMeetings();
+  openMeeting(base);  // state is now "interpreting" → openMeeting starts polling
+}
+
+// Permanently delete a meeting (audio + report + transcript). Irreversible, so it
+// asks first. Usage already billed isn't refunded (Sarvam was already paid).
+async function deleteMeeting(base) {
+  if (!confirm(`Delete this meeting permanently?\n\n${base}\n\n` +
+      `This removes its recording, transcript and report. ` +
+      `This can’t be undone.`)) return;
+  try { await api("/api/meetings/" + encodeURIComponent(base), { method: "DELETE" }); }
+  catch (e) { alert("Couldn’t delete:\n" + e.message); return; }
+  if (current && current.base === base) { current = null; reportEl.innerHTML = ""; }
+  await loadMeetings();
 }
 
 function resetRecUI() {
