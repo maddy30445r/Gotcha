@@ -55,7 +55,7 @@ The only OS-specific code is a thin capture sidecar; everything else is shared.
 
 ## Working agreement — keep memory current
 This project's durable context lives in the auto-memory at
-`~/.claude/projects/-Users-madhurmittal-Desktop-dev-meeting-tool/memory/`. **At the end of
+`~/.claude/projects/-Users-madhurmittal-Desktop-Gotcha/memory/`. **At the end of
 any session that changes the project's goal, architecture, stage, or a key decision, update
 the relevant memory file (and `MEMORY.md` index) so the next session has full context.**
 Record *decisions and why* (not things already obvious from code/git). Current anchors:
