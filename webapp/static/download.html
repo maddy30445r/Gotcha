@@ -18,7 +18,6 @@
     .sub { color: var(--muted); font-size: 17px; margin: 0 0 32px; max-width: 36ch; }
     .btn-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
     .hint { font-size: 13.5px; color: var(--faint); margin: 14px 0 0; }
-    .no-token { color: var(--faint); font-size: 13.5px; margin-top: 10px; }
     section { margin-top: 44px; padding-top: 28px; border-top: 1px solid var(--line); }
     h2 { font-family: var(--display); font-weight: 800; font-size: 21px; letter-spacing: -.02em; margin: 0 0 16px; }
     ol { padding-left: 20px; margin: 0; } li { margin: 10px 0; color: var(--ink); }
@@ -28,7 +27,6 @@
     .privacy b { color: var(--ink); font-weight: 600; }
     .privacy ul { padding-left: 18px; }
     .privacy .warn { color: var(--honey); }
-    #connect-wrap[hidden], #connect-hint[hidden], #no-token-hint[hidden] { display: none; }
   </style>
 </head>
 <body>
@@ -42,13 +40,8 @@
 
     <div class="btn-row">
       <a class="cta" id="download-btn" href="#" download>↓ Download for Mac</a>
-      <span id="connect-wrap" hidden><a class="ghost-btn" id="connect-btn" href="#">Open in Gotcha</a></span>
     </div>
-    <p class="hint" id="connect-hint" hidden>Already installed? <b>Open in Gotcha</b> signs you in automatically — no copy-paste.</p>
-    <p class="no-token" id="no-token-hint">
-      Your invite link includes a personal sign-in token. Open the link you were sent to enable
-      one-click sign-in; otherwise paste your server URL + token under <kbd>⚙ Settings</kbd> in the app.
-    </p>
+    <p class="hint">Free during beta · macOS · no meeting bot. Sign in happens inside the app — no token or server URL to paste.</p>
 
     <section>
       <h2>Install &amp; first run</h2>
@@ -57,8 +50,9 @@
         <li>First launch only: <b>right-click → Open</b> (the build is self-signed, not yet notarized), then confirm.</li>
         <li>When asked, grant <b>Microphone</b> and <b>Screen&nbsp;Recording</b> — Gotcha needs both to capture
             you and the call as separate tracks. After granting Screen Recording the app relaunches itself.</li>
-        <li>Click <b>Open in Gotcha</b> above (or paste your server + token in <kbd>⚙ Settings</kbd>),
-            then hit <b>● Record</b> when your meeting starts.</li>
+        <li>Open <b>Gotcha</b> and click <b>Sign in in browser</b> — your browser opens, you sign in
+            with Google or an email link, and Gotcha connects itself (nothing to copy or paste).
+            Then hit <b>● Record</b> when your meeting starts.</li>
       </ol>
     </section>
 
@@ -82,16 +76,6 @@
       var DMG_URL = "https://github.com/maddy30445r/Gotcha/releases/download/v0.1.0-alpha/Gotcha.dmg";
       var dl = document.getElementById("download-btn");
       if (DMG_URL !== "#") dl.href = DMG_URL;
-
-      var token = new URLSearchParams(location.search).get("token");
-      if (token) {
-        var server = location.origin;
-        var link = "gotcha://connect?server=" + encodeURIComponent(server) + "&token=" + encodeURIComponent(token);
-        document.getElementById("connect-btn").href = link;
-        document.getElementById("connect-wrap").hidden = false;
-        document.getElementById("connect-hint").hidden = false;
-        document.getElementById("no-token-hint").hidden = true;
-      }
     })();
   </script>
 </body>

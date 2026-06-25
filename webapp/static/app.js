@@ -3,7 +3,7 @@
 /* ── config: backend URL + auth token + native bridge ────────────────── */
 const TAURI = !!window.__TAURI__;
 const invoke = TAURI ? window.__TAURI__.core.invoke : null;
-const DEFAULT_SERVER = "http://localhost:8000";
+const DEFAULT_SERVER = "https://gotcha-trial.duckdns.org";
 const DEFAULT_REC_NAME = "meeting";
 // Web: the app is served BY the backend, so it's same-origin — use relative paths
 // and authenticate by the session cookie. Desktop: a different origin (tauri://),
@@ -772,13 +772,13 @@ document.addEventListener("keydown", (e) => {
 /* ── desktop connect settings (server URL + token) ───────────────────── */
 function openSettings() {
   const dlg = $("#settings");
-  $("#set-server").value = serverUrl();
   $("#set-token").value = authToken();
   dlg.showModal ? dlg.showModal() : (dlg.hidden = false);
 }
 function saveSettings(ev) {
   ev.preventDefault();
-  localStorage.setItem("gotcha_server", ($("#set-server").value.trim() || DEFAULT_SERVER));
+  // Server is fixed to the bundled production URL — only the optional token is saved here.
+  localStorage.setItem("gotcha_server", DEFAULT_SERVER);
   localStorage.setItem("gotcha_token", $("#set-token").value.trim());
   const dlg = $("#settings");
   dlg.close ? dlg.close() : (dlg.hidden = true);
@@ -788,7 +788,7 @@ $("#settings-form").addEventListener("submit", saveSettings);
 
 const signinBtn = $("#signin-btn");
 if (signinBtn) signinBtn.onclick = async () => {
-  const server = ($("#set-server").value.trim() || DEFAULT_SERVER).replace(/\/+$/, "");
+  const server = DEFAULT_SERVER;
   localStorage.setItem("gotcha_server", server);
   if (!invoke) { toast("Sign-in needs the Gotcha desktop app.", "err"); return; }
   try { await invoke("open_signin", { serverUrl: server }); }
@@ -825,7 +825,7 @@ if (permRelaunch) permRelaunch.onclick = () => { if (invoke) invoke("relaunch");
 
 const copyBtn = $("#copy-link");
 if (copyBtn) copyBtn.onclick = () => {
-  const server = ($("#set-server").value.trim() || DEFAULT_SERVER).replace(/\/+$/, "");
+  const server = DEFAULT_SERVER;
   const token = $("#set-token").value.trim();
   const link = `gotcha://connect?server=${encodeURIComponent(server)}&token=${encodeURIComponent(token)}`;
   if (navigator.clipboard) navigator.clipboard.writeText(link);

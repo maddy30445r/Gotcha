@@ -144,14 +144,10 @@
   <!-- ── desktop-only dialogs (opened only inside Tauri) ────────────── -->
   <dialog id="settings" class="settings">
     <form id="settings-form" method="dialog" class="settings-form">
-      <h3 class="settings-title">Connect to Gotcha</h3>
-      <p class="settings-hint">Enter your Gotcha server, then sign in — the browser opens,
-        you sign in with Google or an email link, and Gotcha connects itself.</p>
+      <h3 class="settings-title">Sign in to Gotcha</h3>
+      <p class="settings-hint">Click below — your browser opens, you sign in with Google or an
+        email link, and Gotcha connects itself. Nothing to copy or paste.</p>
       <div id="conn-status" class="conn-status" hidden></div>
-      <label class="settings-field">
-        <span>Server URL</span>
-        <input id="set-server" type="url" placeholder="https://your-gotcha-server" />
-      </label>
       <button type="button" id="signin-btn" class="cta cta--sm signin-btn">Sign in in browser</button>
       <details class="settings-adv">
         <summary>Have a token? Enter it manually</summary>
