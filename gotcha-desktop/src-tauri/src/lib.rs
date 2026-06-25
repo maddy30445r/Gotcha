@@ -161,34 +161,53 @@ fn upload_blocking(
     process: bool,
 ) -> Result<String, String> {
     let url = format!("{}/api/upload", server_url.trim_end_matches('/'));
-    let form = reqwest::blocking::multipart::Form::new()
-        .text("name", name)
-        .text("glossary", glossary)
-        .text("process", if process { "true" } else { "false" })
-        .file("system", &system_path)
-        .map_err(|e| format!("reading system track: {e}"))?
-        .file("mic", &mic_path)
-        .map_err(|e| format!("reading mic track: {e}"))?;
+    let client = reqwest::blocking::Client::new();
 
-    let resp = reqwest::blocking::Client::new()
-        .post(url)
-        .bearer_auth(token)
-        .multipart(form)
-        .send()
-        .map_err(|e| format!("upload failed: {e}"))?;
+    // A flaky network shouldn't cost the user their recording. Retry transient
+    // failures (dropped connection, 5xx, 429) with backoff. The local WAVs are
+    // deleted ONLY after a confirmed 2xx (the backend persists both tracks before
+    // responding), so giving up leaves them on disk for the user to retry.
+    let mut last_err = String::new();
+    for attempt in 0..3u32 {
+        // multipart::Form is consumed by send(), so rebuild it (and re-open the
+        // files) on each attempt.
+        let form = reqwest::blocking::multipart::Form::new()
+            .text("name", name.clone())
+            .text("glossary", glossary.clone())
+            .text("process", if process { "true" } else { "false" })
+            .file("system", &system_path)
+            .map_err(|e| format!("reading system track: {e}"))?
+            .file("mic", &mic_path)
+            .map_err(|e| format!("reading mic track: {e}"))?;
 
-    let status = resp.status();
-    let body = resp.text().unwrap_or_default();
-    if !status.is_success() {
-        return Err(format!("server {}: {}", status.as_u16(), body));
+        match client.post(&url).bearer_auth(&token).multipart(form).send() {
+            Ok(resp) => {
+                let status = resp.status();
+                let body = resp.text().unwrap_or_default();
+                if status.is_success() {
+                    // Durably stored server-side now — drop the local copies.
+                    let _ = std::fs::remove_file(&system_path);
+                    let _ = std::fs::remove_file(&mic_path);
+                    let v: serde_json::Value =
+                        serde_json::from_str(&body).map_err(|e| e.to_string())?;
+                    return Ok(v.get("base").and_then(|b| b.as_str())
+                        .unwrap_or("").to_string());
+                }
+                // 4xx other than 429 (e.g. 401 bad token, 413 too large) won't
+                // clear on retry — fail fast with the server's message.
+                if status.as_u16() < 500 && status.as_u16() != 429 {
+                    return Err(format!("server {}: {}", status.as_u16(), body));
+                }
+                last_err = format!("server {}: {}", status.as_u16(), body);
+            }
+            Err(e) => last_err = format!("upload failed: {e}"),
+        }
+        if attempt < 2 {
+            std::thread::sleep(std::time::Duration::from_secs(2u64.pow(attempt + 1)));
+        }
     }
-
-    // Upload succeeded — drop the local copies (audio lives on the backend now).
-    let _ = std::fs::remove_file(&system_path);
-    let _ = std::fs::remove_file(&mic_path);
-
-    let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-    Ok(v.get("base").and_then(|b| b.as_str()).unwrap_or("").to_string())
+    Err(format!("upload failed after retries (your recording is kept locally — \
+                 try again): {last_err}"))
 }
 
 #[tauri::command]

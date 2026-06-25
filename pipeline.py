@@ -132,24 +132,50 @@ def transcribe(audio_path, *, diarize=True, force_speaker=None, label="audio",
     create = client.speech_to_text_job.create_job
     bias_attempts = ([{"prompt": ", ".join(hotwords)}, {"hotwords": hotwords}]
                      if hotwords else [])
+
+    def _submit_and_wait():
+        """One full Sarvam attempt: create → upload → start → wait → return the
+        finished job. Raises on failure; the caller retries transient errors."""
+        job = None
+        for bias in bias_attempts:
+            try:
+                job = create(**bias, **job_kwargs)
+                break
+            except TypeError:
+                continue
+        if job is None:
+            if hotwords:
+                print("  (SDK accepts no prompt/hotwords biasing — continuing without; "
+                      "glossary still fixes proper nouns at interpret)", file=sys.stderr)
+            job = create(**job_kwargs)
+        job.upload_files(file_paths=[audio_path])
+        job.start()
+        job.wait_until_complete(poll_interval=5, timeout=1800)
+        if not job.is_successful():
+            raise RuntimeError(f"Sarvam job failed for {label}: {job.get_status()}")
+        return job
+
+    # A brief Sarvam outage (429 rate-limit, 5xx, dropped connection) shouldn't
+    # lose the whole meeting — retry the submit+wait with backoff. Only clearly
+    # transient HTTP/network errors are retried; a genuine job failure (bad audio)
+    # is re-raised immediately so we don't pay to re-run a hopeless job.
     job = None
-    for bias in bias_attempts:
+    for attempt in range(4):
         try:
-            job = create(**bias, **job_kwargs)
+            job = _submit_and_wait()
             break
-        except TypeError:
-            continue
-    if job is None:
-        if hotwords:
-            print("  (SDK accepts no prompt/hotwords biasing — continuing without; "
-                  "glossary still fixes proper nouns at interpret)", file=sys.stderr)
-        job = create(**job_kwargs)
-    job.upload_files(file_paths=[audio_path])
-    job.start()
-    job.wait_until_complete(poll_interval=5, timeout=1800)
-    if not job.is_successful():
-        print(job.get_status(), file=sys.stderr)
-        raise RuntimeError(f"Sarvam job failed for {label}")
+        except Exception as ex:
+            msg = str(ex)
+            transient = any(s in msg for s in (
+                "429", "500", "502", "503", "504", "RESOURCE_EXHAUSTED",
+                "UNAVAILABLE", "INTERNAL", "imeout", "onnection"))
+            if attempt < 3 and transient:
+                w = min(60, 2 ** attempt)
+                print(f"[Sarvam transient error for {label}, retry in {w}s: "
+                      f"{msg[:100]}]", file=sys.stderr)
+                time.sleep(w)
+                continue
+            raise
 
     out_dir = tempfile.mkdtemp(prefix="sarvam_")
     job.download_outputs(output_dir=out_dir)
