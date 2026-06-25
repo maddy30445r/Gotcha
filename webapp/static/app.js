@@ -735,26 +735,51 @@ document.querySelectorAll("#settings-pop .toggle-row").forEach((row) => {
 });
 
 let currentUser = null;
-async function fillAccount() {
-  try { currentUser = await api("/api/auth/me"); } catch (_) {}
+// Paint whichever account UI is present — web popover (#acct-*) and/or the
+// desktop account dialog (#d-acct-*).
+function paintAccount() {
   const u = currentUser || {};
   const email = u.email || u.display_name || "Signed in";
-  $("#acct-email").textContent = email;
-  $("#acct-avatar").textContent = (email[0] || "G").toUpperCase();
+  const avatar = (email[0] || "G").toUpperCase();
   const used = u.used_min != null ? Math.round(u.used_min) : 0;
   const cap = u.cap_min != null ? Math.round(u.cap_min) : 0;
-  $("#acct-usage").textContent = cap ? `${used} of ${cap} min used` : `${used} min used`;
+  const usage = cap ? `${used} of ${cap} min used` : `${used} min used`;
+  [["#acct-email", "#acct-avatar", "#acct-usage"],
+   ["#d-acct-email", "#d-acct-avatar", "#d-acct-usage"]].forEach(([eSel, aSel, uSel]) => {
+    const e = $(eSel), a = $(aSel), us = $(uSel);
+    if (e) e.textContent = email;
+    if (a) a.textContent = avatar;
+    if (us) us.textContent = usage;
+  });
+}
+async function fillAccount() {
+  try { currentUser = await api("/api/auth/me"); } catch (_) {}
+  paintAccount();
 }
 function toggleSettingsPop() {
   const pop = $("#settings-pop");
   if (pop.hidden) { loadPrefs(); fillAccount(); pop.hidden = false; }
   else pop.hidden = true;
 }
+function showWelcome() { const w = $("#welcome"); if (w) w.hidden = false; }
+function hideWelcome() { const w = $("#welcome"); if (w) w.hidden = true; }
+
 async function signOut() {
+  if (TAURI) {
+    // Desktop has no cookie — sign out is just dropping the local bearer token,
+    // then back to the welcome screen.
+    localStorage.removeItem("gotcha_token");
+    localStorage.removeItem("gotcha_server");
+    currentUser = null;
+    closeSettings();
+    showWelcome();
+    return;
+  }
   try { await api("/api/auth/logout", { method: "POST" }); } catch (_) {}
   location.replace("/login");
 }
-$("#acct-signout").onclick = signOut;
+const webSignout = $("#acct-signout"); if (webSignout) webSignout.onclick = signOut;
+const dSignout = $("#d-acct-signout"); if (dSignout) dSignout.onclick = signOut;
 
 // Desktop keeps the server/token connect dialog; web gets the popover.
 $("#settings-btn").onclick = () => (TAURI ? openSettings() : toggleSettingsPop());
@@ -769,32 +794,32 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") { const pop = $("#settings-pop"); if (pop && !pop.hidden) pop.hidden = true; if (!$("#record-modal").hidden) closeRecordModal(); }
 });
 
-/* ── desktop connect settings (server URL + token) ───────────────────── */
+/* ── desktop account dialog (signed-in: email, usage, sign out) ──────── */
 function openSettings() {
   const dlg = $("#settings");
-  $("#set-token").value = authToken();
+  fillAccount();
   dlg.showModal ? dlg.showModal() : (dlg.hidden = false);
 }
-function saveSettings(ev) {
-  ev.preventDefault();
-  // Server is fixed to the bundled production URL — only the optional token is saved here.
-  localStorage.setItem("gotcha_server", DEFAULT_SERVER);
-  localStorage.setItem("gotcha_token", $("#set-token").value.trim());
+function closeSettings() {
   const dlg = $("#settings");
   dlg.close ? dlg.close() : (dlg.hidden = true);
-  loadMeetings(true);
 }
-$("#settings-form").addEventListener("submit", saveSettings);
+const setClose = $("#settings-close");
+if (setClose) setClose.onclick = closeSettings;
 
-const signinBtn = $("#signin-btn");
-if (signinBtn) signinBtn.onclick = async () => {
-  const server = DEFAULT_SERVER;
-  localStorage.setItem("gotcha_server", server);
+// Open the hosted sign-in page in the system browser; the gotcha:// deep link
+// brings the token back (handled by applyConnectUrl).
+async function startBrowserSignin() {
+  localStorage.setItem("gotcha_server", DEFAULT_SERVER);
   if (!invoke) { toast("Sign-in needs the Gotcha desktop app.", "err"); return; }
-  try { await invoke("open_signin", { serverUrl: server }); }
+  try { await invoke("open_signin", { serverUrl: DEFAULT_SERVER }); }
   catch (e) { toast("Couldn't open the browser: " + e, "err"); return; }
+  const status = $("#welcome-status");
+  if (status) status.textContent = "Finish signing in in your browser…";
   toast("Finish signing in in your browser.", "ok");
-};
+}
+const welcomeSignin = $("#welcome-signin");
+if (welcomeSignin) welcomeSignin.onclick = startBrowserSignin;
 
 /* ── zero-paste onboarding: gotcha://connect?server=&token= ──────────── */
 function applyConnectUrl(raw) {
@@ -804,7 +829,9 @@ function applyConnectUrl(raw) {
     const token = u.searchParams.get("token");
     if (server) localStorage.setItem("gotcha_server", server.replace(/\/+$/, ""));
     if (token) localStorage.setItem("gotcha_token", token);
-    const dlg = $("#settings"); if (dlg && dlg.open) dlg.close();
+    closeSettings();
+    hideWelcome();
+    fillAccount();
     loadMeetings(true);
     return true;
   } catch (_) { return false; }
@@ -822,16 +849,6 @@ const permClose = $("#perm-close");
 if (permClose) permClose.onclick = () => { const d = $("#perm"); d.close ? d.close() : (d.hidden = true); };
 const permRelaunch = $("#perm-relaunch");
 if (permRelaunch) permRelaunch.onclick = () => { if (invoke) invoke("relaunch"); };
-
-const copyBtn = $("#copy-link");
-if (copyBtn) copyBtn.onclick = () => {
-  const server = DEFAULT_SERVER;
-  const token = $("#set-token").value.trim();
-  const link = `gotcha://connect?server=${encodeURIComponent(server)}&token=${encodeURIComponent(token)}`;
-  if (navigator.clipboard) navigator.clipboard.writeText(link);
-  copyBtn.textContent = "Copied ✓";
-  setTimeout(() => (copyBtn.textContent = "Copy connect link"), 1500);
-};
 
 /* ── sidebar collapse / expand ───────────────────────────────────────── */
 function setSidebar(open) {
@@ -851,15 +868,42 @@ function revealIn(scope) {
 const searchEl = $("#meeting-search");
 if (searchEl) searchEl.addEventListener("input", renderMeetingList);
 
+/* ── desktop: keep the webview on the app shell ──────────────────────── */
+// The static pages (landing, login, download) all live in the same bundle and
+// are cross-linked with relative hrefs. Inside Tauri we must never navigate to
+// them — internal links are neutralised, external links open in the browser.
+if (TAURI) {
+  const brand = document.querySelector(".brand");
+  if (brand) brand.setAttribute("href", "#");
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest && e.target.closest("a[href]");
+    if (!a) return;
+    const href = a.getAttribute("href") || "";
+    if (href === "" || href.startsWith("#")) return;     // in-page anchors are fine
+    e.preventDefault();                                  // never leave app.html
+    if (/^https?:\/\//i.test(href) && invoke) {          // external → system browser
+      invoke("open_external", { url: href }).catch(() => {});
+    }
+  }, true);
+}
+
 /* ── boot ────────────────────────────────────────────────────────────── */
 reflectMute();
 revealIn(document);
 async function boot() {
   try {
     currentUser = await api("/api/auth/me");
+    if (TAURI) { hideWelcome(); paintAccount(); }
   } catch (e) {
     if (!TAURI) { location.replace("/login"); return; }
-    if (!authToken()) { openSettings(); }
+    // Desktop: /me failed → no valid session. Drop any stale token so we never
+    // show a previous user's residue, then show the welcome screen.
+    if (authToken()) {
+      localStorage.removeItem("gotcha_token");
+      localStorage.removeItem("gotcha_server");
+    }
+    currentUser = null;
+    showWelcome();
   }
   loadMeetings(true);
   setInterval(() => loadMeetings(false), 8000);

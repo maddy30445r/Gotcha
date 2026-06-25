@@ -142,25 +142,23 @@
   </div>
 
   <!-- ── desktop-only dialogs (opened only inside Tauri) ────────────── -->
+
+  <!-- desktop account view (signed in) -->
   <dialog id="settings" class="settings">
-    <form id="settings-form" method="dialog" class="settings-form">
-      <h3 class="settings-title">Sign in to Gotcha</h3>
-      <p class="settings-hint">Click below — your browser opens, you sign in with Google or an
-        email link, and Gotcha connects itself. Nothing to copy or paste.</p>
-      <div id="conn-status" class="conn-status" hidden></div>
-      <button type="button" id="signin-btn" class="cta cta--sm signin-btn">Sign in in browser</button>
-      <details class="settings-adv">
-        <summary>Have a token? Enter it manually</summary>
-        <label class="settings-field">
-          <span>Access token</span>
-          <input id="set-token" type="password" placeholder="paste your token" autocomplete="off" />
-        </label>
-      </details>
-      <div class="settings-actions">
-        <button type="button" id="copy-link" class="ghost-btn">Copy connect link</button>
-        <button type="submit" class="cta cta--sm">Save</button>
+    <div class="settings-form">
+      <h3 class="settings-title">Your account</h3>
+      <div class="acct-row">
+        <div class="acct-avatar" id="d-acct-avatar">G</div>
+        <div class="acct-meta">
+          <div class="acct-email" id="d-acct-email">—</div>
+          <div class="acct-usage" id="d-acct-usage"></div>
+        </div>
       </div>
-    </form>
+      <div class="settings-actions">
+        <button type="button" id="settings-close" class="ghost-btn">Close</button>
+        <button type="button" id="d-acct-signout" class="cta cta--sm">Sign out</button>
+      </div>
+    </div>
   </dialog>
 
   <dialog id="postrec" class="settings">
@@ -194,6 +192,18 @@
       </div>
     </div>
   </dialog>
+
+  <!-- ── desktop welcome / sign-in (Tauri, signed-out) ──────────────── -->
+  <div id="welcome" class="welcome" hidden>
+    <div class="welcome-card">
+      <div class="brand welcome-brand"><span class="brand-mark">G</span><span class="brand-word">Gotcha</span></div>
+      <h1 class="welcome-title">Welcome to Gotcha</h1>
+      <p class="welcome-lede">Sign in to start decoding your meetings. We'll open your
+        browser — Google or an email link — and connect the app for you. Nothing to paste.</p>
+      <button type="button" id="welcome-signin" class="cta welcome-cta">Sign in with your browser</button>
+      <p class="welcome-fine" id="welcome-status"></p>
+    </div>
+  </div>
 
   <div class="toast-wrap" id="toasts"></div>
 

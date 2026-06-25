@@ -285,6 +285,20 @@ fn open_signin(server_url: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Open an external http(s) link in the system browser. The webview is locked to
+/// the app shell (see app.js), so outbound links are routed here instead.
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("refusing to open non-http(s) url".into());
+    }
+    std::process::Command::new("open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 /// Relaunch the app — needed after granting Screen Recording (the grant only
 /// takes effect on relaunch). `restart()` diverges (replaces the process).
 #[tauri::command]
@@ -315,6 +329,7 @@ pub fn run() {
             upload_recording,
             open_privacy_pane,
             open_signin,
+            open_external,
             relaunch
         ])
         .run(tauri::generate_context!())

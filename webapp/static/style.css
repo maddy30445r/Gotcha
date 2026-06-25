@@ -537,6 +537,25 @@ body.app-shell { height: 100vh; display: flex; flex-direction: column; overflow:
 .perm-steps { display: flex; flex-direction: column; gap: var(--s2); margin-bottom: var(--s4); }
 .perm-steps .ghost-btn { text-align: left; font-size: 13.5px; padding: 9px 16px; }
 
+/* ── desktop welcome / sign-in (Tauri, signed-out) ────────────────────── */
+.welcome {
+  position: fixed; inset: 0; z-index: 200; display: grid; place-items: center;
+  padding: 24px; background: var(--bg);
+  background-image: radial-gradient(680px 320px at 50% -6%, #efeafb 0%, transparent 70%);
+}
+.welcome[hidden] { display: none; }
+.welcome-card {
+  width: 100%; max-width: 420px; text-align: center; background: var(--surface);
+  border: 1px solid var(--line-card); border-radius: var(--r-lg); box-shadow: var(--shadow);
+  padding: 40px 36px;
+}
+.welcome-brand { justify-content: center; margin-bottom: 22px; }
+.welcome-title { font-family: var(--display); font-weight: 800; font-size: 27px;
+  letter-spacing: -.02em; margin: 0 0 8px; }
+.welcome-lede { color: var(--muted); font-size: 14.5px; line-height: 1.55; margin: 0 0 26px; }
+.welcome-cta { width: 100%; justify-content: center; }
+.welcome-fine { color: var(--muted); font-size: 13px; min-height: 18px; margin: 16px 0 0; }
+
 /* ── motion / reveal ──────────────────────────────────────────────────── */
 .reveal { opacity: 0; transform: translateY(10px); }
 .reveal.in { opacity: 1; transform: none; transition: opacity var(--t-rev), transform var(--t-rev); }

@@ -72,7 +72,9 @@
 
   <script>
     var params = new URLSearchParams(location.search);
-    var client = params.get("client") === "desktop" ? "desktop" : "web";
+    // Belt-and-suspenders: if this page is ever loaded inside the desktop webview,
+    // force the desktop (deep-link/token) flow, never the web cookie flow.
+    var client = (params.get("client") === "desktop" || window.__TAURI__) ? "desktop" : "web";
     document.getElementById("google-btn").href = "/api/auth/google/start?client=" + client;
 
     var ERRORS = {
