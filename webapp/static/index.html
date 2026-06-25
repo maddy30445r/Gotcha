@@ -3,198 +3,350 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Gotcha — just say Gotcha and offload your meetings</title>
-
+  <title>Gotcha — know exactly what your lead meant, and what you need to do</title>
+  <meta name="description" content="An interpreter for Hinglish dev-team standups. Gotcha decodes what was decided, what your lead really meant, and your action items — each backed by a timestamp you can tap to replay. Not another note-taker." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Hanken+Grotesk:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
+  <style>
+    /* Landing-only layout, layered on the shared tokens in style.css. */
+    body { display: block; height: auto; overflow-y: auto; background: var(--bg); }
+    .lp { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+    .lp-nav { display: flex; align-items: center; gap: 18px; padding: 20px 0; }
+    .lp-nav .brand { padding: 0; border: none; }
+    .lp-nav .spacer { margin-left: auto; }
+    .lp-nav a.navlink { color: var(--muted); text-decoration: none; font-weight: 500; font-size: 14.5px; }
+    .lp-nav a.navlink:hover { color: var(--ink); }
+
+    /* hero */
+    .hero { text-align: center; padding: 56px 0 24px; }
+    .hero .eyebrow { font-family: var(--body); font-weight: 600; font-size: 13px; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--accent); margin: 0 0 16px; }
+    .hero h1 { font-family: var(--display); font-weight: 600; font-size: clamp(34px, 5.4vw, 58px);
+      line-height: 1.05; letter-spacing: -.025em; margin: 0 auto 18px; max-width: 16ch; }
+    .hero h1 em { font-style: italic; color: var(--accent); }
+    .hero .sub { font-size: clamp(17px, 2.2vw, 20px); color: var(--muted); max-width: 30rem; margin: 0 auto 28px; }
+    .hero .sub b { color: var(--ink); font-weight: 600; }
+    .hero-cta { display: inline-flex; flex-direction: column; align-items: center; gap: 10px; }
+    .hero-note { font-size: 13px; color: var(--faint); }
+
+    /* the floating product shot — built from the real warm components */
+    .shot-frame { margin: 44px auto 0; max-width: 760px; background: var(--surface);
+      border: 1px solid var(--line); border-radius: 24px; box-shadow: 0 30px 80px rgba(80,66,40,.16);
+      padding: 26px 30px; text-align: left; position: relative; }
+    .shot-frame::before { content: ""; position: absolute; inset: 0 0 auto; height: 46px;
+      border-radius: 24px 24px 0 0; background: linear-gradient(var(--surface-2), transparent); }
+    .shot-bar { display: flex; gap: 7px; margin-bottom: 22px; position: relative; }
+    .shot-bar i { width: 11px; height: 11px; border-radius: 50%; background: var(--line-2); }
+    .shot-greet { font-size: 13.5px; color: var(--muted); margin: 0 0 4px; }
+    .shot-greet b { color: var(--accent); }
+    .shot-title { font-family: var(--display); font-weight: 600; font-size: 28px; letter-spacing: -.02em; margin: 0 0 20px; }
+
+    /* shared section rhythm */
+    .band { padding: 80px 0; }
+    .band-tight { padding: 56px 0; }
+    .center { text-align: center; }
+    .sec-eyebrow { font-weight: 600; font-size: 13px; letter-spacing: .05em; text-transform: uppercase;
+      color: var(--accent); margin: 0 0 12px; }
+    h2.sec { font-family: var(--display); font-weight: 600; font-size: clamp(26px, 3.6vw, 38px);
+      line-height: 1.12; letter-spacing: -.02em; margin: 0 0 16px; }
+
+    /* pain band */
+    .pain { background: var(--ink); color: #FBF7F0; border-radius: 28px; padding: 64px 48px; text-align: center; }
+    .pain p { font-family: var(--display); font-style: italic; font-weight: 500; font-size: clamp(24px, 3.4vw, 34px);
+      line-height: 1.3; max-width: 24ch; margin: 0 auto; }
+    .pain .who { font-family: var(--body); font-style: normal; font-size: 14.5px; color: #C9C0B2; margin-top: 22px; letter-spacing: .02em; }
+
+    /* differentiators */
+    .diff { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; margin-bottom: 64px; }
+    .diff:nth-child(even) .diff-text { order: 2; }
+    .diff-num { font-family: var(--body); font-weight: 600; font-size: 13px; color: var(--accent);
+      letter-spacing: .05em; text-transform: uppercase; margin: 0 0 10px; }
+    .diff h3 { font-family: var(--display); font-weight: 600; font-size: 26px; letter-spacing: -.01em; margin: 0 0 12px; }
+    .diff p { color: var(--muted); font-size: 16px; margin: 0; }
+    .diff p .hi { color: var(--ink); font-weight: 600; }
+    .diff-visual { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
+      box-shadow: var(--shadow); padding: 22px; }
+
+    /* two-track mini-viz */
+    .tracks { display: flex; flex-direction: column; gap: 14px; }
+    .trk { display: flex; align-items: center; gap: 12px; }
+    .trk .who { font-family: var(--body); font-weight: 600; font-size: 12.5px; width: 56px; }
+    .trk.you .who { color: var(--accent); }
+    .trk.them .who { color: var(--rose); }
+    .wave { flex: 1; display: flex; align-items: center; gap: 3px; height: 30px; }
+    .wave i { flex: 1; border-radius: 2px; }
+    .trk.you .wave i { background: var(--accent-line); }
+    .trk.them .wave i { background: #F2C7C2; }
+
+    /* for / not for */
+    .fornot { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .fcard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 28px; box-shadow: var(--shadow-sm); }
+    .fcard.no { background: var(--surface-2); box-shadow: none; }
+    .fcard .lab { font-weight: 600; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; margin: 0 0 14px; }
+    .fcard.yes .lab { color: var(--leaf); }
+    .fcard.no .lab { color: var(--faint); }
+    .fcard ul { margin: 0; padding: 0; list-style: none; }
+    .fcard li { padding: 8px 0 8px 26px; position: relative; color: var(--ink); font-size: 15.5px; }
+    .fcard.no li { color: var(--muted); }
+    .fcard.yes li::before { content: "✓"; position: absolute; left: 0; color: var(--leaf); font-weight: 700; }
+    .fcard.no li::before { content: "—"; position: absolute; left: 0; color: var(--faint); }
+
+    /* privacy */
+    .priv { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+    .priv .p { text-align: center; }
+    .priv .ic { font-size: 22px; }
+    .priv h4 { font-family: var(--display); font-weight: 600; font-size: 16px; margin: 12px 0 6px; }
+    .priv p { color: var(--muted); font-size: 13.5px; margin: 0; }
+
+    /* how it works */
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+    .step .k { font-family: var(--display); font-weight: 700; font-size: 15px; color: #fff; background: var(--accent);
+      width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; margin-bottom: 14px; }
+    .step h4 { font-family: var(--display); font-weight: 600; font-size: 20px; margin: 0 0 8px; }
+    .step p { color: var(--muted); font-size: 15px; margin: 0; }
+
+    /* final CTA */
+    .final { background: var(--accent-soft); border-radius: 28px; padding: 64px 40px; text-align: center; }
+    .final h2 { margin-bottom: 14px; }
+    .final p { color: var(--muted); max-width: 26rem; margin: 0 auto 26px; }
+    .wl { display: flex; gap: 8px; max-width: 440px; margin: 0 auto; }
+    .wl input[type=email] { flex: 1; font-family: var(--body); font-size: 15px; color: var(--ink);
+      background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-pill); padding: 13px 20px; outline: none; }
+    .wl input[type=email]:focus { border-color: var(--accent-line); }
+    .wl .hp { position: absolute; left: -9999px; }
+    .wl-msg { margin-top: 14px; font-size: 14px; font-weight: 500; min-height: 20px; }
+    .wl-msg.ok { color: var(--leaf); }
+    .wl-msg.err { color: var(--rose); }
+
+    footer.lp-foot { padding: 40px 0 60px; color: var(--faint); font-size: 13.5px; display: flex; align-items: center; gap: 16px; }
+    footer.lp-foot .spacer { margin-left: auto; }
+    footer.lp-foot a { color: var(--muted); text-decoration: none; }
+
+    @media (max-width: 820px) {
+      .diff, .fornot, .priv, .steps { grid-template-columns: 1fr; }
+      .diff:nth-child(even) .diff-text { order: 0; }
+      .priv { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 520px) { .wl { flex-direction: column; } .priv { grid-template-columns: 1fr; } }
+  </style>
 </head>
 <body>
-  <!-- Top bar: brand + the one primary control (record) + settings --------- -->
-  <header class="topbar">
-    <a class="brand" href="#top">
-      <span class="brand-dot" aria-hidden="true"></span>
-      Gotcha
-    </a>
-    <div class="rec">
-      <input id="rec-name" type="text" value="standup" aria-label="Recording name" />
-      <button id="rec-btn" class="rec-btn">
-        <span class="rec-glyph" aria-hidden="true"></span>
-        <span class="rec-text">Record</span>
-        <span id="rec-timer" class="rec-timer" hidden>00:00</span>
-      </button>
-      <button id="settings-btn" class="icon-btn" title="Settings" aria-label="Settings">⚙</button>
-    </div>
-  </header>
+  <div class="lp">
 
-  <span id="top"></span>
+    <!-- nav -->
+    <nav class="lp-nav">
+      <a class="brand" href="/"><span class="brand-mark">G</span><span class="brand-word">Gotcha</span></a>
+      <span class="spacer"></span>
+      <a class="navlink" href="#how">How it works</a>
+      <a class="navlink" href="#privacy">Privacy</a>
+      <a class="navlink" href="/app">Open app</a>
+      <a class="cta cta--sm" href="#get">Request access</a>
+    </nav>
 
-  <!-- Hero: the thesis is the decode moment itself ------------------------ -->
-  <section class="hero" id="hero">
-    <div class="hero-inner">
-      <p class="kicker">For developers in Hinglish standups</p>
-      <h1 class="hero-title">
-        Just say <em>Gotcha</em>.<br />We&rsquo;ll handle the meeting.
-      </h1>
-      <p class="hero-sub">
-        Gotcha turns each meeting into a clear, personalized brief — the decisions
-        made, what your lead <em>really</em> meant, and your action items — with every
-        point linked to the exact moment it was said.
-      </p>
+    <!-- hero -->
+    <header class="hero">
+      <p class="eyebrow">The meeting decoder for Hinglish standups</p>
+      <h1>Know exactly what your lead <em>meant</em> — and what you need to do.</h1>
+      <p class="sub">An interpreter for Hinglish dev-team meetings. <b>Not another note-taker.</b></p>
+      <div class="hero-cta">
+        <a class="cta" href="#get">Request beta access</a>
+        <span class="hero-note">Mac app · free during beta · no meeting bot</span>
+      </div>
 
-      <!-- The characteristic moment, shown live -->
-      <figure class="decode-demo reveal" aria-label="Example: a vague line, decoded">
-        <figcaption class="demo-tag">what your lead said</figcaption>
-        <blockquote class="demo-said" lang="hi">
-          “तुमको core का नहीं भेजा, production का।”
-          <span class="pill pill--static"><span class="pill-rec"></span>50.4s<span class="pill-play">▶</span></span>
-        </blockquote>
-        <div class="demo-arrow" aria-hidden="true">↓ decoded</div>
-        <p class="demo-meant">
-          Use the <b>production</b> credentials I already sent — the core-DB ones
-          aren’t coming. Stop waiting on them.
-        </p>
-        <div class="demo-todo">
-          <span class="todo-box" aria-hidden="true"></span>
-          <span class="todo-text">Point your local at the production DB and run the ingest</span>
-          <span class="prio prio--high">High</span>
-          <span class="pill pill--static"><span class="pill-rec"></span>33.8s<span class="pill-play">▶</span></span>
+      <!-- product shot, built from the real warm components -->
+      <div class="shot-frame" aria-hidden="true">
+        <div class="shot-bar"><i></i><i></i><i></i></div>
+        <p class="shot-greet">Good evening, <b>you</b> — here's what mattered.</p>
+        <p class="shot-title">Daily Standup, decoded</p>
+
+        <div class="section" style="margin-bottom:26px">
+          <p class="section-eyebrow">The gist</p>
+          <div class="summary-prose">You're shipping the mic silence-trim to bring cost down<span class="pill">2.4s</span>, and Priya flagged the Windows recorder has no owner<span class="pill">9.3s</span>.</div>
         </div>
-      </figure>
 
-      <!-- Genuinely sequential, so a sequence is honest -->
-      <ol class="loop" aria-label="How it works">
-        <li><span class="loop-k">Record</span><span class="loop-d">the meeting, with one tap</span></li>
-        <li><span class="loop-k">Decode</span><span class="loop-d">the decisions and what was really meant</span></li>
-        <li><span class="loop-k">Act</span><span class="loop-d">on your items, each linked to the exact moment</span></li>
-      </ol>
+        <div class="section" style="margin-bottom:26px">
+          <p class="section-eyebrow" style="color:var(--rose)">What they really meant</p>
+          <div class="decode-card">
+            <p class="dc-tag">Priya said</p>
+            <div class="dc-said"><q lang="hi">तुम core का मत छेड़ो अभी।</q><span class="pill">3.3s</span></div>
+            <p class="dc-arrow">↓ really means</p>
+            <p class="dc-meant"><b>Don't touch the core DB this sprint.</b> Use the production creds already sent.</p>
+          </div>
+        </div>
 
-      <button class="cta" id="hero-cta">See a decoded meeting <span aria-hidden="true">↓</span></button>
-    </div>
-  </section>
+        <div class="section" style="margin-bottom:0">
+          <p class="section-eyebrow" style="color:var(--leaf)">Your action item</p>
+          <div class="action">
+            <span class="act-box"></span>
+            <div class="act-main"><div class="act-row"><span class="act-task">Point local at the production DB and run ingest</span><span class="prio prio--high">High</span></div>
+            <div class="act-source"><span class="pill">5.0s</span></div></div>
+          </div>
+        </div>
+      </div>
+    </header>
 
-  <!-- Why Gotcha: the benefits ------------------------------------------- -->
-  <section class="benefits" id="why" aria-label="Why Gotcha">
-    <p class="benefits-eyebrow">why developers keep it open</p>
-    <ul class="benefit-grid">
-      <li class="benefit reveal">
-        <span class="benefit-mark" aria-hidden="true">✶</span>
-        <h3>A clear brief, not a transcript</h3>
-        <p>Gotcha distills the meeting into what was decided, what your lead meant,
-           and exactly what <em>you</em> now owe — with your next move spelled out.</p>
-      </li>
-      <li class="benefit reveal">
-        <span class="benefit-mark" aria-hidden="true">▶</span>
-        <h3>Points you to the exact moment</h3>
-        <p>Every point is linked to the second it was said, so you can verify the
-           important bits in seconds instead of re-listening.</p>
-      </li>
-      <li class="benefit reveal">
-        <span class="benefit-mark" aria-hidden="true">●</span>
-        <h3>Only listens when you allow it</h3>
-        <p>Gotcha records only while you choose to — never in the background, and
-           never without you starting it.</p>
-      </li>
-      <li class="benefit reveal">
-        <span class="benefit-mark" aria-hidden="true">◇</span>
-        <h3>Lightweight and out of your way</h3>
-        <p>A small, fast app that stays quiet until you need it — not a heavy client
-           weighing down your machine.</p>
-      </li>
-      <li class="benefit reveal">
-        <span class="benefit-mark" aria-hidden="true">🔒</span>
-        <h3>Private by design</h3>
-        <p>Your audio is encrypted in transit and at rest, never used to train any
-           AI model, and yours to delete at any time.</p>
-      </li>
-    </ul>
-  </section>
-
-  <!-- Workspace: the tool ------------------------------------------------- -->
-  <main class="workspace" id="workspace">
-    <aside class="sidebar">
-      <h2 class="side-head">Meetings</h2>
-      <ul id="meeting-list" class="meeting-list"></ul>
-    </aside>
-
-    <section class="report-pane">
-      <div id="report" class="report">
-        <p class="report-empty">Pick a meeting on the left, or hit <b>Record</b> to capture one.</p>
+    <!-- pain -->
+    <section class="band">
+      <div class="pain">
+        <p>"I missed half of what my lead said, and I'm too embarrassed to ask again. Just tell me what I need to do."</p>
+        <p class="who">— every junior dev in a fast Hinglish standup</p>
       </div>
     </section>
-  </main>
 
-  <!-- Player: the receipt, playing --------------------------------------- -->
-  <footer class="player">
-    <div class="player-now">
-      <span class="player-eq" id="player-eq" aria-hidden="true"><i></i><i></i><i></i></span>
-      <span id="player-label" class="player-label">No moment playing — tap a timestamp to hear it</span>
-    </div>
-    <div class="seg" id="track-seg" role="group" aria-label="Which side to play">
-      <button data-mode="mix" class="active">Mix</button>
-      <button data-mode="mic">You</button>
-      <button data-mode="system">Them</button>
-    </div>
-    <audio id="player" controls preload="none"></audio>
-  </footer>
-
-  <!-- Settings: backend URL + access token ------------------------------- -->
-  <dialog id="settings" class="settings">
-    <form id="settings-form" method="dialog" class="settings-form">
-      <h3 class="settings-title">Gotcha settings</h3>
-      <p class="settings-hint">Connect Gotcha to your account. Your team admin gives
-        you the server URL and access token.</p>
-      <label class="settings-field">
-        <span>Server URL</span>
-        <input id="set-server" type="url" placeholder="http://localhost:8000" />
-      </label>
-      <label class="settings-field">
-        <span>Access token</span>
-        <input id="set-token" type="password" placeholder="paste your token" autocomplete="off" />
-      </label>
-      <div class="settings-actions">
-        <button type="button" id="copy-link" class="ghost-btn">Copy connect link</button>
-        <button type="submit" class="cta cta--sm">Save</button>
+    <!-- differentiators -->
+    <section class="band-tight" id="why">
+      <div class="center" style="margin-bottom:48px">
+        <p class="sec-eyebrow">Why it's different</p>
+        <h2 class="sec">Most tools summarize the meeting.<br>Gotcha interprets it — for you.</h2>
       </div>
-    </form>
-  </dialog>
 
-  <!-- Post-recording: glossary + decide now-or-later -------------------- -->
-  <dialog id="postrec" class="settings">
-    <div class="settings-form">
-      <h3 class="settings-title">Recording saved</h3>
-      <p class="settings-hint">Add any names, acronyms, or terms from this meeting so
-        they’re captured accurately.</p>
-      <label class="settings-field">
-        <span>Names &amp; terms (optional)</span>
-        <textarea id="post-glossary" rows="2" placeholder="Worldpay, BookingPal, Aadhaar, 3DS"></textarea>
-      </label>
-      <div class="settings-actions postrec-actions">
-        <button type="button" id="post-park" class="ghost-btn">Save for later</button>
-        <button type="button" id="post-jump" class="cta cta--sm">Summarize now</button>
+      <div class="diff">
+        <div class="diff-text">
+          <p class="diff-num">01 · Interprets, not summarizes</p>
+          <h3>Decodes the indirect Hinglish</h3>
+          <p>When your lead is vague or talks around it, Gotcha tells you what they <span class="hi">actually meant</span> — not a tidy transcript of words you already heard and still didn't understand.</p>
+        </div>
+        <div class="diff-visual">
+          <div class="decode-card" style="margin:0">
+            <p class="dc-tag">what was said</p>
+            <div class="dc-said"><q lang="hi">तुमको core का नहीं भेजा, production का।</q></div>
+            <p class="dc-arrow">↓ what they really meant</p>
+            <p class="dc-meant"><b>Use the production credentials I already sent.</b> The core-DB ones aren't coming — stop waiting.</p>
+          </div>
+        </div>
       </div>
-    </div>
-  </dialog>
 
-  <!-- Permission wizard (shown when capture is blocked) ------------------ -->
-  <dialog id="perm" class="settings">
-    <div class="settings-form">
-      <h3 class="settings-title">Two quick permissions</h3>
-      <p class="settings-hint">Gotcha needs Microphone and Screen&nbsp;Recording to capture
-        your meeting. Grant both, then relaunch — macOS only applies Screen Recording
-        after a restart.</p>
-      <div class="perm-steps">
-        <button type="button" class="ghost-btn" data-pane="mic">1 · Open Microphone settings</button>
-        <button type="button" class="ghost-btn" data-pane="screen">2 · Open Screen Recording settings</button>
+      <div class="diff">
+        <div class="diff-text">
+          <p class="diff-num">02 · Knows who said what</p>
+          <h3>Your voice, separated from theirs</h3>
+          <p>Gotcha records <span class="hi">you and the call on two tracks</span>, so it never confuses your words with your lead's — and it can filter the whole meeting down to <span class="hi">your</span> tasks alone.</p>
+        </div>
+        <div class="diff-visual">
+          <div class="tracks">
+            <div class="trk you"><span class="who">You</span><span class="wave"><i style="height:40%"></i><i style="height:70%"></i><i style="height:30%"></i><i style="height:85%"></i><i style="height:50%"></i><i style="height:20%"></i><i style="height:60%"></i><i style="height:35%"></i><i style="height:75%"></i><i style="height:45%"></i></span></div>
+            <div class="trk them"><span class="who">Them</span><span class="wave"><i style="height:60%"></i><i style="height:30%"></i><i style="height:80%"></i><i style="height:45%"></i><i style="height:25%"></i><i style="height:70%"></i><i style="height:40%"></i><i style="height:90%"></i><i style="height:35%"></i><i style="height:55%"></i></span></div>
+          </div>
+        </div>
       </div>
-      <div class="settings-actions">
-        <button type="button" id="perm-close" class="ghost-btn">Close</button>
-        <button type="button" id="perm-relaunch" class="cta cta--sm">Relaunch Gotcha</button>
-      </div>
-    </div>
-  </dialog>
 
-  <script src="app.js"></script>
+      <div class="diff">
+        <div class="diff-text">
+          <p class="diff-num">03 · Replayable proof</p>
+          <h3>Every claim links to the second</h3>
+          <p>Because Gotcha keeps the audio, every conclusion is a <span class="hi">tappable timestamp</span>. Trust it in a glance — and never get sent down the wrong path by a misheard instruction.</p>
+        </div>
+        <div class="diff-visual">
+          <div class="action" style="margin:0">
+            <span class="act-box"></span>
+            <div class="act-main">
+              <div class="act-row"><span class="act-task">Ship the VAD mic-trim</span><span class="prio prio--high">High</span></div>
+              <div class="act-source"><span class="pill">5.0s</span><span class="act-quote">"haan woh cost wala fix kar do"</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- who it's for / not for -->
+    <section class="band-tight">
+      <div class="center" style="margin-bottom:36px"><h2 class="sec">Built for one person, on purpose</h2></div>
+      <div class="fornot">
+        <div class="fcard yes">
+          <p class="lab">Made for you if</p>
+          <ul>
+            <li>You're a junior-to-mid dev on a Hinglish-speaking team</li>
+            <li>You feel a step behind in dense standups and KT sessions</li>
+            <li>You walk out unsure what was decided or what's yours to do</li>
+          </ul>
+        </div>
+        <div class="fcard no">
+          <p class="lab">Not for</p>
+          <ul>
+            <li>English-speaking solo consultants on 1:1 client calls</li>
+            <li>People who already take great notes and just want them tidied</li>
+            <li>Teams wanting a bot to announce itself and sit in every call</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- privacy -->
+    <section class="band-tight" id="privacy">
+      <div class="center" style="margin-bottom:40px">
+        <p class="sec-eyebrow">Private by design</p>
+        <h2 class="sec">It only listens when you do.</h2>
+      </div>
+      <div class="priv">
+        <div class="p"><div class="ic">🎙️</div><h4>No bot, no announcement</h4><p>Records locally on your Mac. Nothing joins the call.</p></div>
+        <div class="p"><div class="ic">👆</div><h4>On-demand only</h4><p>Captures solely while you hold a meeting and press Record.</p></div>
+        <div class="p"><div class="ic">🔒</div><h4>Encrypted &amp; no-train</h4><p>Encrypted in transit and at rest; never used to train a model.</p></div>
+        <div class="p"><div class="ic">🗑️</div><h4>Yours to delete</h4><p>Your audio and reports stay yours — delete any of it, anytime.</p></div>
+      </div>
+    </section>
+
+    <!-- how it works -->
+    <section class="band-tight" id="how">
+      <div class="center" style="margin-bottom:40px"><h2 class="sec">Three taps from lost to sorted</h2></div>
+      <div class="steps">
+        <div class="step"><div class="k">1</div><h4>Record</h4><p>One tap when the meeting starts. No bot, no link to paste.</p></div>
+        <div class="step"><div class="k">2</div><h4>Decode</h4><p>Gotcha separates the voices and reads between the lines.</p></div>
+        <div class="step"><div class="k">3</div><h4>Act</h4><p>Get your decisions and tasks, each linked to the exact moment.</p></div>
+      </div>
+    </section>
+
+    <!-- final CTA -->
+    <section class="band" id="get">
+      <div class="final">
+        <h2 class="sec">Stop guessing what you missed.</h2>
+        <p>Gotcha is in private beta. Leave your email and we'll send you a personal invite to the Mac app.</p>
+        <form class="wl" id="waitlist" autocomplete="off">
+          <input type="text" class="hp" name="website" tabindex="-1" aria-hidden="true" />
+          <input type="email" id="wl-email" placeholder="you@company.com" required />
+          <button class="cta" type="submit">Request access</button>
+        </form>
+        <div class="wl-msg" id="wl-msg" role="status"></div>
+      </div>
+    </section>
+
+    <!-- footer -->
+    <footer class="lp-foot">
+      <span>© Gotcha · the meeting decoder</span>
+      <span class="spacer"></span>
+      <a href="/app">Open app</a>
+      <a href="#privacy">Privacy</a>
+    </footer>
+
+  </div>
+
+  <script>
+    // Same-origin waitlist post to the backend. Honeypot 'website' must stay blank.
+    var form = document.getElementById("waitlist");
+    var msg = document.getElementById("wl-msg");
+    form.addEventListener("submit", async function (e) {
+      e.preventDefault();
+      msg.className = "wl-msg"; msg.textContent = "";
+      var email = document.getElementById("wl-email").value.trim();
+      var website = form.querySelector('input[name=website]').value;
+      try {
+        var res = await fetch("/api/request-access", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: email, website: website }),
+        });
+        if (!res.ok) {
+          var d = {}; try { d = await res.json(); } catch (_) {}
+          throw new Error(d.detail || "Something went wrong — try again.");
+        }
+        msg.className = "wl-msg ok";
+        msg.textContent = "You're on the list — we'll email your invite soon.";
+        form.reset();
+      } catch (err) {
+        msg.className = "wl-msg err";
+        msg.textContent = err.message;
+      }
+    });
+  </script>
 </body>
 </html>

@@ -30,7 +30,7 @@ import wave
 import queue
 import threading
 
-from fastapi import FastAPI, HTTPException, Header, Depends, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Header, Depends, UploadFile, File, Form, Body
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -251,6 +251,18 @@ def _write_meta(user, base, **fields):
         json.dump(meta, f)
 
 
+def _display_name(user, base, meta=None):
+    """Human label for a meeting: the saved name, else derived from the base id
+    (e.g. 20260625_143000_standup-1 → "standup")."""
+    meta = meta if meta is not None else _read_meta(user, base)
+    nm = (meta.get("name") or "").strip()
+    if nm:
+        return nm
+    m = re.match(r"^\d{8}_\d{6}_(.+?)(?:-\d+)?$", base)
+    slug = m.group(1) if m else base
+    return slug.replace("-", " ").replace("_", " ").strip() or base
+
+
 def _resolve_state(user, base):
     """Durable state: prefer the live in-memory job, else infer from disk so a
     'parked' or 'done' meeting survives a server restart (the job registry doesn't)."""
@@ -346,6 +358,35 @@ def healthz():
     return {"ok": True}
 
 
+WAITLIST_FILE = os.path.join(DATA_ROOT, "waitlist.jsonl")
+_waitlist_lock = threading.Lock()
+
+
+@app.post("/api/request-access")
+def request_access(email: str = Body("", embed=True),
+                   website: str = Body("", embed=True)):
+    """Beta waitlist (unauthenticated): append an email to waitlist.jsonl on the
+    data volume. `website` is a honeypot — real users leave it blank, bots fill it,
+    so a non-empty value is silently dropped."""
+    if website.strip():
+        return {"ok": True}
+    email = (email or "").strip().lower()
+    if len(email) > 200 or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        raise HTTPException(422, "Enter a valid email")
+    line = json.dumps({"email": email, "ts": time.time()}, ensure_ascii=False)
+    with _waitlist_lock:
+        with open(WAITLIST_FILE, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    return {"ok": True}
+
+
+@app.get("/app")
+def app_page():
+    """Serve the app shell at a clean /app path (the static mount also serves it at
+    /app.html). The marketing landing lives at /."""
+    return FileResponse(os.path.join(STATIC_DIR, "app.html"))
+
+
 # ---------------------------------------------------------------------------
 # Meetings / report (all per-user, all behind auth)
 # ---------------------------------------------------------------------------
@@ -381,6 +422,8 @@ def list_meetings(user=Depends(auth)):
     for base, e in seen.items():
         meetings.append({
             "base": base,
+            "name": _display_name(user, base),
+            "created": e["mtime"],
             "mtime": e["mtime"],
             "has_report": os.path.exists(os.path.join(out_dir, f"{base}.report.md")),
             "has_transcript": os.path.exists(os.path.join(out_dir, f"{base}.transcript.json")),
@@ -578,6 +621,23 @@ def reinterpret_meeting(base: str, user=Depends(auth)):
     _set_state(user, base, "interpreting")
     threading.Thread(target=_reinterpret_job, args=(user, base, terms), daemon=True).start()
     return {"base": base, "state": "interpreting"}
+
+
+@app.patch("/api/meetings/{base}")
+def rename_meeting(base: str, name: str = Body(..., embed=True), user=Depends(auth)):
+    """Rename a meeting — updates the saved display name only; the base id (and all
+    file paths) are unchanged, so audio/report/transcript stay put."""
+    base = _safe_base(base)
+    name = (name or "").strip()[:120]
+    if not name:
+        raise HTTPException(422, "Name can't be empty")
+    out = _out_dir(user)
+    exists = any(os.path.exists(os.path.join(out, base + s))
+                 for s in (".report.md", ".transcript.json", ".meta.json"))
+    if not exists:
+        raise HTTPException(404, "No such meeting")
+    _write_meta(user, base, name=name)
+    return {"base": base, "name": name}
 
 
 @app.delete("/api/meetings/{base}")

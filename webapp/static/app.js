@@ -29,6 +29,18 @@ const player = $("#player");
 const playerLabel = $("#player-label");
 const playerEq = $("#player-eq");
 
+/* ── toasts (in-app feedback, replaces alert) ────────────────────────── */
+function toast(msg, kind) {
+  const wrap = document.getElementById("toasts");
+  if (!wrap) { console.warn(msg); return; }
+  const el = document.createElement("div");
+  el.className = "toast" + (kind ? " " + kind : "");
+  el.textContent = msg;
+  wrap.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("in"));
+  setTimeout(() => { el.classList.remove("in"); setTimeout(() => el.remove(), 220); }, 3600);
+}
+
 /* ── tiny helpers ────────────────────────────────────────────────────── */
 async function api(path, opts) {
   opts = opts || {};
@@ -211,24 +223,80 @@ function badge(state, hasReport) {
   return "";
 }
 
-async function loadMeetings(autoOpen) {
-  let data;
-  try { data = await api("/api/meetings"); } catch (_) { return; }
+let allMeetings = [];
+function fmtDate(epoch) {
+  if (!epoch) return "";
+  const d = new Date(epoch * 1000), now = new Date();
+  const yest = new Date(now); yest.setDate(now.getDate() - 1);
+  if (d.toDateString() === now.toDateString()) return "Today";
+  if (d.toDateString() === yest.toDateString()) return "Yesterday";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function renderMeetingList() {
+  const q = (($("#meeting-search") || {}).value || "").trim().toLowerCase();
+  const shown = q
+    ? allMeetings.filter((m) => (m.name || m.base).toLowerCase().includes(q))
+    : allMeetings;
   listEl.innerHTML = "";
-  for (const m of data.meetings) {
+  if (!shown.length) {
+    const li = document.createElement("li");
+    li.className = "list-empty";
+    li.textContent = q ? "No meetings match." : "No meetings yet — hit Record.";
+    listEl.appendChild(li);
+    return;
+  }
+  for (const m of shown) {
     const li = document.createElement("li");
     if (current && current.base === m.base) li.classList.add("active");
     li.dataset.base = m.base;
     li.innerHTML =
-      `<div class="mi-name">${esc(m.base)}</div>` +
-      `<div class="mi-meta">${badge(m.state, m.has_report)}` +
-      `${Object.keys(m.tracks).length ? '<span class="badge audio">audio</span>' : ""}</div>` +
+      `<div class="mi-name">${esc(m.name || m.base)}</div>` +
+      `<div class="mi-meta"><span class="mi-date">${esc(fmtDate(m.created))}</span>` +
+      `${badge(m.state, m.has_report)}</div>` +
       `<button class="mi-del" title="Delete meeting" aria-label="Delete meeting">✕</button>`;
     li.onclick = () => openMeeting(m.base);
     li.querySelector(".mi-del").onclick = (e) => { e.stopPropagation(); deleteMeeting(m.base); };
     listEl.appendChild(li);
   }
-  if (autoOpen && !current && data.meetings[0]) openMeeting(data.meetings[0].base, true);
+}
+
+async function loadMeetings(autoOpen) {
+  let data;
+  try { data = await api("/api/meetings"); } catch (_) { return; }
+  allMeetings = data.meetings || [];
+  renderMeetingList();
+  if (autoOpen && !current && allMeetings[0]) openMeeting(allMeetings[0].base, true);
+}
+
+/* rename (display name only — base/files unchanged) + export the report markdown */
+async function renameMeeting(base) {
+  const m = allMeetings.find((x) => x.base === base);
+  let name = null;
+  try { name = window.prompt("Rename meeting", (m && m.name) || base); } catch (_) {}
+  if (name == null) return;
+  name = name.trim();
+  if (!name) return;
+  try {
+    await api("/api/meetings/" + encodeURIComponent(base), {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+  } catch (e) { toast("Couldn't rename: " + e.message, "err"); return; }
+  toast("Renamed", "ok");
+  await loadMeetings();
+}
+
+function exportReport(base, mdText) {
+  if (!mdText) { toast("No report to export yet.", "err"); return; }
+  const m = allMeetings.find((x) => x.base === base);
+  const fname = ((m && m.name) || base).replace(/[^\w-]+/g, "_") + ".md";
+  const blob = new Blob([mdText], { type: "text/markdown" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = fname;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  toast("Exported " + fname, "ok");
 }
 
 async function openMeeting(base, quiet) {
@@ -254,7 +322,11 @@ async function openMeeting(base, quiet) {
   if (m.report_md) {
     try { html += renderReport(m.report_md); }
     catch (_) { html += `<div class="report-fallback">${m.report_html || ""}</div>`; }
-    if (canReinterpret) html += `<div class="report-actions"><button class="link-btn" id="reinterpret-btn">Re-interpret</button></div>`;
+    html += `<div class="report-actions">
+        <button class="link-btn" id="rename-btn">Rename</button>
+        <button class="link-btn" id="export-btn">Export</button>
+        ${canReinterpret ? `<button class="link-btn" id="reinterpret-btn">Re-interpret</button>` : ""}
+      </div>`;
   } else if (m.report_html) {
     html += `<div class="report-fallback">${m.report_html}</div>`;
   } else if (m.state === "parked") {
@@ -276,6 +348,11 @@ async function openMeeting(base, quiet) {
 
   const reBtn = $("#reinterpret-btn");
   if (reBtn) reBtn.onclick = () => reinterpretMeeting(base);
+
+  const renameBtn = $("#rename-btn");
+  if (renameBtn) renameBtn.onclick = () => renameMeeting(base);
+  const exportBtn = $("#export-btn");
+  if (exportBtn) exportBtn.onclick = () => exportReport(base, m.report_md);
 
   if (PROCESSING.has(m.state)) pollMeeting(base);
   if (!quiet) document.getElementById("workspace").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -402,15 +479,15 @@ player.addEventListener("ended", () => {
 
 /* ── record control (native capture via Tauri → upload) ──────────────── */
 async function startRecording() {
-  if (!TAURI) { alert("Recording needs the Gotcha desktop app."); return; }
+  if (!TAURI) { toast("Recording needs the Gotcha desktop app.", "err"); return; }
   if (!authToken()) { openSettings(); return; }
   recBtn.disabled = true;
   try {
     recSession = await invoke("start_recording", { name: recName.value || "meeting" });
   } catch (e) {
     const msg = String(e);
-    if (/[Pp]ermission/.test(msg)) openPerm();   // guide the grant instead of a dead-end alert
-    else alert("Couldn’t start recording:\n" + msg);
+    if (/[Pp]ermission/.test(msg)) openPerm();   // guide the grant instead of a dead-end toast
+    else toast("Couldn't start recording: " + msg, "err");
     recBtn.disabled = false; return;
   }
   recording = true;
@@ -427,7 +504,7 @@ async function stopRecording() {
   if (timerId) { clearInterval(timerId); timerId = null; }
   let sess;
   try { sess = await invoke("stop_recording"); }
-  catch (e) { alert("Stop failed:\n" + e); resetRecUI(); return; }
+  catch (e) { toast("Stop failed: " + e, "err"); resetRecUI(); return; }
   resetRecUI();
   recSession = null;
   pendingRec = sess;     // capture is on disk; let the user add a glossary + decide
@@ -450,7 +527,7 @@ async function finishUpload(processNow) {
       systemPath: sess.system_path, micPath: sess.mic_path,
       glossary, process: processNow,
     });
-  } catch (e) { alert("Upload failed:\n" + e); recBtn.disabled = false; return; }
+  } catch (e) { toast("Upload failed: " + e, "err"); recBtn.disabled = false; return; }
   recBtn.disabled = false;
   $("#post-glossary").value = "";
   await loadMeetings();
@@ -463,7 +540,7 @@ function closePostRec() { const d = $("#postrec"); d.close ? d.close() : (d.hidd
 // Start decoding a parked meeting (audio already uploaded).
 async function decodeMeeting(base) {
   try { await api("/api/process/" + encodeURIComponent(base), { method: "POST" }); }
-  catch (e) { alert("Couldn’t start decoding:\n" + e.message); return; }
+  catch (e) { toast("Couldn't start decoding: " + e.message, "err"); return; }
   await loadMeetings();
   openMeeting(base);
 }
@@ -472,7 +549,7 @@ async function decodeMeeting(base) {
 // recover a meeting whose interpret failed, or to refresh an existing report.
 async function reinterpretMeeting(base) {
   try { await api("/api/reinterpret/" + encodeURIComponent(base), { method: "POST" }); }
-  catch (e) { alert("Couldn’t start re-interpret:\n" + e.message); return; }
+  catch (e) { toast("Couldn't start re-interpret: " + e.message, "err"); return; }
   await loadMeetings();
   openMeeting(base);  // state is now "interpreting" → openMeeting starts polling
 }
@@ -484,7 +561,7 @@ async function deleteMeeting(base) {
       `This removes its recording, transcript and report. ` +
       `This can’t be undone.`)) return;
   try { await api("/api/meetings/" + encodeURIComponent(base), { method: "DELETE" }); }
-  catch (e) { alert("Couldn’t delete:\n" + e.message); return; }
+  catch (e) { toast("Couldn't delete: " + e.message, "err"); return; }
   if (current && current.base === base) { current = null; reportEl.innerHTML = ""; }
   await loadMeetings();
 }
@@ -567,13 +644,19 @@ function revealIn(scope) {
   els.forEach((el, i) => setTimeout(() => el.classList.add("in"), 60 + i * 70));
 }
 
-$("#hero-cta").onclick = () => {
+// Legacy hero CTA only exists on the old combined page; guard for app.html.
+const heroCta = $("#hero-cta");
+if (heroCta) heroCta.onclick = () => {
   document.getElementById("workspace").scrollIntoView({ behavior: "smooth", block: "start" });
   if (!current) loadMeetings(true);
 };
 
+// Filter the meetings rail as you type.
+const searchEl = $("#meeting-search");
+if (searchEl) searchEl.addEventListener("input", renderMeetingList);
+
 /* ── boot ────────────────────────────────────────────────────────────── */
-revealIn(document);             // hero demo fades up
+revealIn(document);
 if (!authToken()) openSettings();   // first run: ask for backend URL + token
 loadMeetings(true);             // populate sidebar + auto-open newest into the workspace
 setInterval(() => loadMeetings(false), 8000);
