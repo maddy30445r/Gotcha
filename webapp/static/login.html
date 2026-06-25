@@ -75,6 +75,13 @@
     // Belt-and-suspenders: if this page is ever loaded inside the desktop webview,
     // force the desktop (deep-link/token) flow, never the web cookie flow.
     var client = (params.get("client") === "desktop" || window.__TAURI__) ? "desktop" : "web";
+
+    // Already signed in on the web? Skip the form — go straight to the app. (Desktop
+    // connect handles its own session reuse via /api/auth/desktop/connect.)
+    if (client === "web") {
+      fetch("/api/auth/me").then(function (r) { if (r.ok) location.replace("/app"); })
+        .catch(function () {});
+    }
     document.getElementById("google-btn").href = "/api/auth/google/start?client=" + client;
 
     var ERRORS = {

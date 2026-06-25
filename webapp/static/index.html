@@ -625,5 +625,17 @@
     render();
   })();
   </script>
+
+  <script>
+  // Logged-in visitors skip the marketing sign-in: point every "Get started" CTA at
+  // the app and relabel it. Silent no-op when signed out.
+  fetch("/api/auth/me").then(function (r) {
+    if (!r.ok) return;
+    document.querySelectorAll('a[href="/login"]').forEach(function (a) {
+      a.setAttribute("href", "/app");
+      if (/get started/i.test(a.textContent)) a.textContent = "Open Gotcha";
+    });
+  }).catch(function () {});
+  </script>
 </body>
 </html>

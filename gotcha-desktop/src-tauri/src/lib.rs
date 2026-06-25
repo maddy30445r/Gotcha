@@ -271,13 +271,14 @@ fn open_privacy_pane(which: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Open the hosted sign-in page in the system browser. After the user signs in
-/// (Google / email link), the server redirects to gotcha://connect?server=…&token=…,
-/// which the deep-link handler below binds — so this replaces pasting a token.
+/// Open the hosted connect page in the system browser. If the browser already has a
+/// web session the server links that account immediately; otherwise it shows sign-in.
+/// Either way it ends by redirecting to gotcha://connect?server=…&token=…, which the
+/// deep-link handler below binds — so this replaces pasting a token.
 #[tauri::command]
 fn open_signin(server_url: String) -> Result<(), String> {
     let base = server_url.trim_end_matches('/');
-    let url = format!("{base}/login?client=desktop");
+    let url = format!("{base}/api/auth/desktop/connect");
     std::process::Command::new("open")
         .arg(url)
         .spawn()

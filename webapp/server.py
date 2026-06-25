@@ -475,6 +475,9 @@ def _desktop_connect_page(link):
   a.btn {{ display:inline-block; padding:11px 20px; border-radius:11px;
     background:#5d4ce6; color:#fff; font-weight:600; font-size:14.5px;
     text-decoration:none; }}
+  .alts {{ margin:20px 0 0; display:flex; flex-direction:column; gap:8px; }}
+  .alts a {{ color:#7a7163; font-size:12.5px; text-decoration:none; }}
+  .alts a:hover {{ color:#5d4ce6; text-decoration:underline; }}
 </style></head>
 <body>
   <div class="card">
@@ -482,6 +485,10 @@ def _desktop_connect_page(link):
     <h1>You're signed in</h1>
     <p>Gotcha is opening on your Mac. You can close this tab and head back to the app.</p>
     <a class="btn" href="{href}">Open Gotcha</a>
+    <div class="alts">
+      <a href="/api/auth/desktop/connect?force=1">Not you? Use a different account</a>
+      <a href="/download.html">Don't have the app? Download it</a>
+    </div>
   </div>
   <script>setTimeout(function(){{ window.location.href = {js}; }}, 200);</script>
 </body></html>"""
@@ -505,6 +512,22 @@ def _finish_login(request, email, client, display_name=None):
     resp = RedirectResponse("/app", status_code=303)
     _set_session(resp, user["user_id"])
     return resp
+
+
+@app.get("/api/auth/desktop/connect")
+def desktop_connect(request: Request, force: int = 0):
+    """Link the desktop app. If this browser already has a web session (and we aren't
+    forcing a re-pick), connect that account straight away — no second login. Otherwise
+    send the user through the normal sign-in, which ends at the same interstitial."""
+    if not force:
+        uid = authmod.read_session(request.cookies.get(authmod.SESSION_COOKIE))
+        rec = authmod.user_by_id(uid) if uid else None
+        if rec:
+            tok = authmod.api_token_for(rec["user_id"])
+            link = (f"gotcha://connect?server={quote(_base_url(request))}"
+                    f"&token={quote(tok)}")
+            return HTMLResponse(_desktop_connect_page(link))
+    return RedirectResponse("/login?client=desktop", status_code=303)
 
 
 @app.post("/api/auth/email/start")

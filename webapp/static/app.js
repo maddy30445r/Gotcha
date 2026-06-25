@@ -781,10 +781,10 @@ async function signOut() {
 const webSignout = $("#acct-signout"); if (webSignout) webSignout.onclick = signOut;
 const dSignout = $("#d-acct-signout"); if (dSignout) dSignout.onclick = signOut;
 
-// Web only: hand the just-installed desktop app a session. Goes through the same
-// explicit account chooser; the callback fires the gotcha:// deep link.
+// Web only: hand the just-installed desktop app a session. The connect endpoint
+// reuses this browser's web session (no second login) and fires the gotcha:// deep link.
 const connectApp = $("#connect-app");
-if (connectApp) connectApp.onclick = () => window.open("/login?client=desktop", "_blank");
+if (connectApp) connectApp.onclick = () => window.open("/api/auth/desktop/connect", "_blank");
 
 // Desktop keeps the server/token connect dialog; web gets the popover.
 $("#settings-btn").onclick = () => (TAURI ? openSettings() : toggleSettingsPop());
@@ -895,6 +895,9 @@ if (TAURI) {
 /* ── boot ────────────────────────────────────────────────────────────── */
 reflectMute();
 revealIn(document);
+// Desktop first run (no token yet): show the welcome screen synchronously so the
+// empty app shell never flashes before /api/auth/me resolves.
+if (TAURI && !authToken()) showWelcome();
 async function boot() {
   try {
     currentUser = await api("/api/auth/me");
