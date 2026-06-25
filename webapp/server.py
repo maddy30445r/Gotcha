@@ -24,6 +24,7 @@ not app-level crypto, so playback stays a plain file serve.
 
 import os
 import re
+import html
 import json
 import time
 import wave
@@ -33,7 +34,7 @@ import threading
 from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Header, Depends, UploadFile, File, Form, Body, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import markdown as md
@@ -447,16 +448,56 @@ def _set_session(resp, user_id):
         secure=authmod.PUBLIC_URL.startswith("https://"), path="/")
 
 
+def _desktop_connect_page(link):
+    """An interstitial that fires the gotcha:// deep link (which logs the desktop
+    app in) and tells the user they can close the tab. A 303 straight to a custom
+    scheme leaves the browser hanging on a blank/loading page, so we land on real
+    HTML instead and trigger the link from JS, with a manual button as fallback."""
+    href = html.escape(link, quote=True)   # for the HTML attribute (& -> &amp;)
+    js = json.dumps(link)                   # a safe JS string literal (keeps & intact)
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Signed in · Gotcha</title>
+<style>
+  body {{ margin:0; min-height:100vh; display:grid; place-items:center;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    color:#221d17; background:#f4ecdf;
+    background-image:radial-gradient(680px 320px at 50% -6%,#efeafb 0,transparent 70%); }}
+  .card {{ max-width:380px; margin:24px; padding:40px 34px; text-align:center;
+    background:#fffdf8; border:1px solid #e7ddca; border-radius:20px;
+    box-shadow:0 14px 36px -30px rgba(80,60,30,.5); }}
+  .mark {{ width:40px; height:40px; margin:0 auto 18px; border-radius:11px;
+    background:#5d4ce6; color:#fff; font-weight:800; font-size:22px;
+    display:grid; place-items:center; }}
+  h1 {{ font-size:22px; font-weight:800; letter-spacing:-.02em; margin:0 0 8px; }}
+  p {{ color:#7a7163; font-size:14.5px; line-height:1.55; margin:0 0 22px; }}
+  a.btn {{ display:inline-block; padding:11px 20px; border-radius:11px;
+    background:#5d4ce6; color:#fff; font-weight:600; font-size:14.5px;
+    text-decoration:none; }}
+</style></head>
+<body>
+  <div class="card">
+    <div class="mark">G</div>
+    <h1>You're signed in</h1>
+    <p>Gotcha is opening on your Mac. You can close this tab and head back to the app.</p>
+    <a class="btn" href="{href}">Open Gotcha</a>
+  </div>
+  <script>setTimeout(function(){{ window.location.href = {js}; }}, 200);</script>
+</body></html>"""
+
+
 def _finish_login(request, email, client, display_name=None):
     """Find-or-create the account (open signup → free cap), then hand the client
-    its credential: the desktop app gets the api_token via the gotcha:// deep link;
-    the web gets a session cookie + a redirect into the app."""
+    its credential: the desktop app gets the api_token via the gotcha:// deep link
+    (delivered through an interstitial page); the web gets a session cookie + a
+    redirect into the app."""
     user, _created = authmod.find_or_create_user(email, display_name=display_name)
     if client == "desktop":
         tok = authmod.api_token_for(user["user_id"])
         link = (f"gotcha://connect?server={quote(_base_url(request))}"
                 f"&token={quote(tok)}")
-        return RedirectResponse(link, status_code=303)
+        return HTMLResponse(_desktop_connect_page(link))
     resp = RedirectResponse("/app", status_code=303)
     _set_session(resp, user["user_id"])
     return resp
