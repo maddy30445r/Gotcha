@@ -7,316 +7,623 @@
   <meta name="description" content="An interpreter for Hinglish dev-team standups. Gotcha decodes what was decided, what your lead really meant, and your action items — each backed by a timestamp you can tap to replay. Not another note-taker." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Hanken+Grotesk:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500;1,700;1,800&family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
   <style>
-    /* Landing-only layout, layered on the shared tokens in style.css. */
-    body { display: block; height: auto; overflow-y: auto; background: var(--bg); }
-    .lp { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
-    .lp-nav { display: flex; align-items: center; gap: 18px; padding: 20px 0; }
-    .lp-nav .brand { padding: 0; border: none; }
-    .lp-nav .spacer { margin-left: auto; }
-    .lp-nav a.navlink { color: var(--muted); text-decoration: none; font-weight: 500; font-size: 14.5px; }
+    body { display: block; height: auto; overflow-x: hidden;
+      background: linear-gradient(180deg, #faf6ee 0%, #f4ecdf 46%, #f1e7d8 100%); }
+    a { text-decoration: none; }
+    .lp-wrap { max-width: 1180px; margin: 0 auto; padding: 0 30px; }
+
+    /* nav */
+    .lp-nav { display: flex; align-items: center; justify-content: space-between; padding: 24px 0; }
+    .lp-nav .links { display: flex; align-items: center; gap: 30px; }
+    .lp-nav a.navlink { font-weight: 600; font-size: 15px; color: #4a4339; }
     .lp-nav a.navlink:hover { color: var(--ink); }
+    .nav-cta { background: var(--accent); color: #fff; font-family: var(--body); font-weight: 700;
+      font-size: 15px; padding: 11px 20px; border-radius: 30px; box-shadow: var(--shadow-brand);
+      transition: transform var(--t); }
+    .nav-cta:hover { transform: translateY(-1px); }
 
     /* hero */
-    .hero { text-align: center; padding: 56px 0 24px; }
-    .hero .eyebrow { font-family: var(--body); font-weight: 600; font-size: 13px; letter-spacing: .06em;
-      text-transform: uppercase; color: var(--accent); margin: 0 0 16px; }
-    .hero h1 { font-family: var(--display); font-weight: 600; font-size: clamp(34px, 5.4vw, 58px);
-      line-height: 1.05; letter-spacing: -.025em; margin: 0 auto 18px; max-width: 16ch; }
+    .hero { max-width: 900px; margin: 0 auto; padding: 56px 30px 0; text-align: center; }
+    .eyebrow { font-family: var(--mono); font-weight: 700; font-size: 12px; letter-spacing: .16em;
+      text-transform: uppercase; color: var(--accent); }
+    .hero h1 { font-size: clamp(40px, 6.6vw, 78px); line-height: 1.0; font-weight: 800;
+      letter-spacing: -.035em; margin: 20px 0 0; }
     .hero h1 em { font-style: italic; color: var(--accent); }
-    .hero .sub { font-size: clamp(17px, 2.2vw, 20px); color: var(--muted); max-width: 30rem; margin: 0 auto 28px; }
-    .hero .sub b { color: var(--ink); font-weight: 600; }
-    .hero-cta { display: inline-flex; flex-direction: column; align-items: center; gap: 10px; }
-    .hero-note { font-size: 13px; color: var(--faint); }
+    .hero .sub { font-size: clamp(18px, 2.4vw, 23px); line-height: 1.5; color: var(--soft);
+      max-width: 620px; margin: 24px auto 0; font-weight: 500; }
+    .hero .sub b { color: var(--ink); font-weight: 800; }
+    .hero-cta-row { margin-top: 34px; display: flex; justify-content: center; }
+    .hero-cta-row .cta { font-size: 18px; padding: 16px 32px; }
+    .hero-note { margin-top: 18px; font-family: var(--mono); font-size: 12.5px; color: #8c8174; letter-spacing: .02em; }
 
-    /* the floating product shot — built from the real warm components */
-    .shot-frame { margin: 44px auto 0; max-width: 760px; background: var(--surface);
-      border: 1px solid var(--line); border-radius: 24px; box-shadow: 0 30px 80px rgba(80,66,40,.16);
-      padding: 26px 30px; text-align: left; position: relative; }
-    .shot-frame::before { content: ""; position: absolute; inset: 0 0 auto; height: 46px;
-      border-radius: 24px 24px 0 0; background: linear-gradient(var(--surface-2), transparent); }
-    .shot-bar { display: flex; gap: 7px; margin-bottom: 22px; position: relative; }
-    .shot-bar i { width: 11px; height: 11px; border-radius: 50%; background: var(--line-2); }
-    .shot-greet { font-size: 13.5px; color: var(--muted); margin: 0 0 4px; }
-    .shot-greet b { color: var(--accent); }
-    .shot-title { font-family: var(--display); font-weight: 600; font-size: 28px; letter-spacing: -.02em; margin: 0 0 20px; }
+    /* demo player */
+    .demo-sec { max-width: 1000px; margin: 44px auto 0; padding: 0 30px; }
+    .try-chip-wrap { display: flex; justify-content: center; margin-bottom: 18px; }
+    .try-chip { font-family: var(--mono); font-size: 12.5px; font-weight: 600; color: #8a7f70;
+      background: var(--surface); border: 1px solid var(--line-card); padding: 9px 16px; border-radius: 30px;
+      box-shadow: 0 4px 14px rgba(120,100,60,.06); animation: floaty 3.4s ease-in-out infinite; }
+    .demo-window { background: var(--surface); border: 1px solid var(--line-card); border-radius: 22px;
+      box-shadow: 0 30px 70px -28px rgba(80,60,30,.4), 0 2px 0 rgba(255,255,255,.6) inset; overflow: hidden; }
+    .demo-titlebar { display: flex; align-items: center; justify-content: space-between; padding: 15px 20px;
+      border-bottom: 1px solid #f1eadc; }
+    .demo-dots { display: flex; gap: 7px; }
+    .demo-dots span { width: 11px; height: 11px; border-radius: 50%; background: #e3dbc9; }
+    .demo-titlebar .dt-name { font-weight: 700; font-size: 14px; color: var(--soft); margin-left: 14px; }
+    .demo-titlebar .dt-name span { color: var(--faint-3); }
+    .mute-btn { display: flex; align-items: center; gap: 7px; background: #f6f1e7; border: 1px solid var(--line-card);
+      border-radius: 24px; padding: 6px 12px; cursor: pointer; color: #8a7f70; font-family: var(--mono);
+      font-size: 11px; font-weight: 600; }
+    .demo-body { padding: 24px 26px 28px; }
+    .demo-greet { font-size: 15px; color: #8a7f70; font-weight: 500; }
+    .demo-greet b { color: var(--accent); font-weight: 700; }
+    .demo-controls { display: flex; align-items: center; gap: 14px; margin-top: 16px; flex-wrap: wrap; }
+    .demo-play { display: inline-flex; align-items: center; gap: 10px; background: var(--accent); color: #fff;
+      border: none; font-family: var(--body); font-weight: 700; font-size: 16px; padding: 13px 22px;
+      border-radius: 13px; cursor: pointer; transition: transform var(--t), box-shadow var(--t); }
+    .demo-play.idle { animation: pulseBtn 2.2s ease-in-out infinite; }
+    .demo-play.started { box-shadow: 0 6px 18px rgba(93,76,230,.3); }
+    .demo-restart { width: 42px; height: 42px; border-radius: 12px; background: #f6f1e7; border: 1px solid var(--line-card);
+      color: #8a7f70; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .demo-restart:hover { background: #efe9dc; }
+    .demo-time { margin-left: auto; font-family: var(--mono); font-size: 13px; font-weight: 600; color: #8a7f70; }
+    .demo-time .cur { color: var(--accent); }
 
-    /* shared section rhythm */
-    .band { padding: 80px 0; }
-    .band-tight { padding: 56px 0; }
-    .center { text-align: center; }
-    .sec-eyebrow { font-weight: 600; font-size: 13px; letter-spacing: .05em; text-transform: uppercase;
-      color: var(--accent); margin: 0 0 12px; }
-    h2.sec { font-family: var(--display); font-weight: 600; font-size: clamp(26px, 3.6vw, 38px);
-      line-height: 1.12; letter-spacing: -.02em; margin: 0 0 16px; }
+    .demo-wave { display: flex; gap: 14px; margin-top: 18px; align-items: stretch; }
+    .demo-wave-labels { display: flex; flex-direction: column; justify-content: space-around; width: 50px; flex: 0 0 auto; padding: 2px 0; }
+    .demo-wave-labels .you { font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--accent); }
+    .demo-wave-labels .them { font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--coral); }
+    .demo-wave-rows { flex: 1; position: relative; display: flex; flex-direction: column; gap: 10px; justify-content: center; min-width: 0; }
+    .demo-row { display: flex; gap: 3px; height: 42px; }
+    .demo-row.you { align-items: flex-end; }
+    .demo-row.them { align-items: flex-start; }
+    .demo-row i { flex: 1; border-radius: 2px; min-width: 2px; background: #ded7c8; }
+    .demo-playhead { position: absolute; top: -6px; bottom: -6px; width: 2px; background: var(--ink);
+      border-radius: 2px; transform: translateX(-1px); opacity: 0; }
+    .demo-playdot { position: absolute; top: -13px; width: 11px; height: 11px; border-radius: 50%;
+      background: var(--ink); transform: translateX(-5px); opacity: 0; box-shadow: 0 2px 6px rgba(0,0,0,.28); }
 
-    /* pain band */
-    .pain { background: var(--ink); color: #FBF7F0; border-radius: 28px; padding: 64px 48px; text-align: center; }
-    .pain p { font-family: var(--display); font-style: italic; font-weight: 500; font-size: clamp(24px, 3.4vw, 34px);
-      line-height: 1.3; max-width: 24ch; margin: 0 auto; }
-    .pain .who { font-family: var(--body); font-style: normal; font-size: 14.5px; color: #C9C0B2; margin-top: 22px; letter-spacing: .02em; }
+    .demo-caption { margin-top: 16px; min-height: 50px; display: flex; align-items: center; gap: 12px;
+      padding: 13px 16px; border-radius: 14px; background: #f7f2e8; border: 1px solid #efe7d6; }
+    .demo-caption .hint { font-size: 14.5px; color: var(--faint); font-weight: 500; }
+    .cap-chip { font-family: var(--mono); font-weight: 700; font-size: 11px; letter-spacing: .04em;
+      text-transform: uppercase; padding: 4px 9px; border-radius: 7px; flex: 0 0 auto; }
+    .cap-chip.you { background: var(--accent-tint); color: var(--accent); }
+    .cap-chip.them { background: var(--coral-tint); color: var(--coral); }
+    .cap-text { font-size: 16px; font-style: italic; color: #3a342b; line-height: 1.4; }
+    .cap-eq { display: inline-flex; gap: 3px; align-items: flex-end; height: 16px; margin-left: auto; flex: 0 0 auto; }
+    .cap-eq span { width: 3px; height: 5px; border-radius: 2px; background: var(--accent); animation: eq .7s ease-in-out infinite; }
+    .cap-eq span:nth-child(2) { animation-delay: .18s; }
+    .cap-eq span:nth-child(3) { animation-delay: .34s; }
 
-    /* differentiators */
-    .diff { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; margin-bottom: 64px; }
-    .diff:nth-child(even) .diff-text { order: 2; }
-    .diff-num { font-family: var(--body); font-weight: 600; font-size: 13px; color: var(--accent);
-      letter-spacing: .05em; text-transform: uppercase; margin: 0 0 10px; }
-    .diff h3 { font-family: var(--display); font-weight: 600; font-size: 26px; letter-spacing: -.01em; margin: 0 0 12px; }
-    .diff p { color: var(--muted); font-size: 16px; margin: 0; }
-    .diff p .hi { color: var(--ink); font-weight: 600; }
-    .diff-visual { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg);
-      box-shadow: var(--shadow); padding: 22px; }
+    .demo-report { margin-top: 26px; }
+    .demo-block { transition: opacity var(--t), transform var(--t); }
+    .demo-kick { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .13em; }
+    .demo-kick.gist { color: var(--accent); }
+    .demo-kick.meant { color: var(--coral); }
+    .demo-kick.act { color: var(--green); }
+    .demo-block p.gist-p { font-size: 18px; line-height: 1.6; margin: 10px 0 0; color: #2c271f; }
+    .dpill { display: inline-flex; align-items: center; gap: 3px; font-family: var(--mono); font-weight: 600;
+      font-size: 11px; line-height: 1; padding: 4px 8px; border-radius: 7px; cursor: pointer; white-space: nowrap;
+      background: #efe9dc; color: var(--faint-3); transition: var(--t); }
+    .dpill.lit { background: var(--accent-tint); color: var(--accent); }
+    .demo-meant-card { margin-top: 10px; border: 1px solid #f1d9d0; border-left: 4px solid var(--coral-deep);
+      border-radius: 14px; padding: 18px 20px; background: #fffbf9; }
+    .demo-meant-card .said { font-size: 20px; font-style: italic; margin-top: 8px; color: #2c271f;
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .demo-meant-card .means { font-size: 17px; line-height: 1.55; margin-top: 6px; }
+    .demo-meant-card .means b { font-weight: 800; }
+    .demo-meant-card .means span { color: var(--muted); }
+    .demo-actions { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+    .demo-action { display: flex; align-items: center; gap: 14px; border: 1px solid var(--line-card);
+      border-radius: 14px; padding: 15px 18px; background: var(--surface); }
+    .da-box { width: 22px; height: 22px; border-radius: 7px; border: 2px solid #d2cab9; color: #fff;
+      display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800;
+      cursor: pointer; flex: 0 0 auto; transition: var(--t); }
+    .da-box.checked { border-color: var(--green); background: var(--green); }
+    .da-task { font-weight: 600; font-size: 16px; line-height: 1.4; color: var(--ink); transition: var(--t); }
+    .demo-action.checked .da-task { color: #a79d8c; text-decoration: line-through; }
+    .da-prio { font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--coral);
+      background: var(--coral-tint); padding: 3px 8px; border-radius: 6px; flex: 0 0 auto; }
+    .da-pill { margin-left: auto; }
 
-    /* two-track mini-viz */
-    .tracks { display: flex; flex-direction: column; gap: 14px; }
-    .trk { display: flex; align-items: center; gap: 12px; }
-    .trk .who { font-family: var(--body); font-weight: 600; font-size: 12.5px; width: 56px; }
-    .trk.you .who { color: var(--accent); }
-    .trk.them .who { color: var(--rose); }
-    .wave { flex: 1; display: flex; align-items: center; gap: 3px; height: 30px; }
-    .wave i { flex: 1; border-radius: 2px; }
-    .trk.you .wave i { background: var(--accent-line); }
-    .trk.them .wave i { background: #F2C7C2; }
+    /* dark band */
+    .band { margin-top: 120px; background: var(--dark); padding: clamp(72px,11vw,128px) 30px; text-align: center;
+      color: var(--bg); position: relative; overflow: hidden; }
+    .band-glow { position: absolute; top: -40%; left: 50%; width: 120%; height: 120%; transform: translateX(-50%);
+      background: radial-gradient(closest-side, rgba(124,108,255,.16), transparent 70%); pointer-events: none; }
+    .band-inner { max-width: 920px; margin: 0 auto; position: relative; }
+    .band .eyebrow { color: #9d8eff; letter-spacing: .2em; }
+    .band-phrase { font-size: clamp(20px,3.2vw,32px); font-weight: 600; color: #a89d8c; min-height: 1.35em;
+      margin-top: 22px; line-height: 1.3; }
+    .band h2 { font-size: clamp(64px,15vw,176px); font-weight: 800; letter-spacing: -.05em; line-height: .86; margin: 10px 0 0; }
+    .band h2 span { color: #7c6cff; }
+    .band p { font-size: clamp(17px,2.2vw,22px); line-height: 1.55; color: #cabfae; margin: 30px auto 0; max-width: 600px; font-weight: 500; }
+    .band p em { font-style: italic; color: var(--bg); }
+    .band p b { color: #fff; font-weight: 800; }
+    .band-cta { margin-top: 34px; display: flex; justify-content: center; }
+    .band-cta .cta { background: #7c6cff; box-shadow: 0 10px 30px rgba(124,108,255,.4); }
 
-    /* for / not for */
-    .fornot { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-    .fcard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 28px; box-shadow: var(--shadow-sm); }
-    .fcard.no { background: var(--surface-2); box-shadow: none; }
-    .fcard .lab { font-weight: 600; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; margin: 0 0 14px; }
-    .fcard.yes .lab { color: var(--leaf); }
-    .fcard.no .lab { color: var(--faint); }
-    .fcard ul { margin: 0; padding: 0; list-style: none; }
-    .fcard li { padding: 8px 0 8px 26px; position: relative; color: var(--ink); font-size: 15.5px; }
+    /* sections */
+    .sec { max-width: 1060px; margin: 130px auto 0; padding: 0 30px; }
+    .sec-head { text-align: center; }
+    .sec h2 { font-size: clamp(30px,4.6vw,52px); line-height: 1.06; font-weight: 800; letter-spacing: -.025em; margin: 16px auto 0; max-width: 760px; }
+    .sec h2 .hi { color: var(--accent); }
+
+    .diff { display: flex; gap: 52px; align-items: center; margin-top: 72px; flex-wrap: wrap; }
+    .diff.rev { flex-direction: row-reverse; }
+    .diff > div { flex: 1; min-width: 300px; }
+    .diff-num { font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: .1em; color: #8a7f70; }
+    .diff h3 { font-size: 30px; font-weight: 800; letter-spacing: -.02em; margin: 12px 0 0; }
+    .diff p { font-size: 18px; line-height: 1.6; color: var(--soft); margin: 14px 0 0; }
+    .diff p b { color: var(--ink); }
+    .mini-decode { border: 1px solid #f1d9d0; border-left: 4px solid var(--coral-deep); border-radius: 16px;
+      padding: 22px; background: #fffbf9; box-shadow: 0 18px 40px -26px rgba(120,60,40,.4); }
+    .mini-decode .k { font-family: var(--mono); font-size: 10.5px; font-weight: 700; letter-spacing: .1em; }
+    .mini-decode .k1 { color: var(--faint); }
+    .mini-decode .k2 { color: var(--coral); margin-top: 18px; }
+    .mini-decode .said { font-size: 19px; font-style: italic; margin-top: 8px; color: #2c271f; }
+    .mini-decode .means { font-size: 16px; line-height: 1.55; margin-top: 6px; }
+    .mini-decode .means b { font-weight: 800; } .mini-decode .means span { color: var(--muted); }
+    .mini-card { border: 1px solid var(--line-card); border-radius: 16px; background: var(--surface); box-shadow: 0 18px 40px -26px rgba(80,60,30,.35); }
+    .mini-tracks { padding: 24px; }
+    .mini-trk { display: flex; align-items: center; gap: 12px; }
+    .mini-trk + .mini-trk { margin-top: 0; }
+    .mini-trk .who { font-family: var(--mono); font-size: 11px; font-weight: 700; width: 44px; }
+    .mini-trk.you .who { color: var(--accent); } .mini-trk.them .who { color: var(--coral); }
+    .mini-wave { flex: 1; display: flex; gap: 4px; height: 30px; }
+    .mini-trk.you .mini-wave { align-items: flex-end; } .mini-trk.them .mini-wave { align-items: flex-start; }
+    .mini-wave i { flex: 1; border-radius: 2px; }
+    .mini-trk.you .mini-wave i { background: var(--accent-played); } .mini-trk.them .mini-wave i { background: var(--coral-played); }
+    .mini-action { padding: 18px; }
+    .mini-action .row1 { display: flex; align-items: center; gap: 14px; }
+    .mini-action .box { width: 22px; height: 22px; border-radius: 7px; border: 2px solid #d2cab9; flex: 0 0 auto; }
+    .mini-action .task { font-weight: 600; font-size: 16px; }
+    .mini-action .row2 { margin-top: 12px; display: flex; align-items: center; gap: 10px; }
+    .mini-action .quote { font-style: italic; color: #8a7f70; font-size: 14px; }
+
+    .fornot { display: flex; gap: 26px; margin-top: 50px; flex-wrap: wrap; }
+    .fcard { flex: 1; min-width: 300px; border: 1px solid var(--line-card); border-radius: 20px; padding: 32px 30px;
+      background: var(--surface); box-shadow: 0 18px 44px -30px rgba(80,60,30,.4); }
+    .fcard.no { background: #efe8db; border-color: var(--line); box-shadow: none; }
+    .fcard .lab { font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: .1em; }
+    .fcard.yes .lab { color: var(--green); } .fcard.no .lab { color: var(--faint); }
+    .fcard ul { margin: 22px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 20px; }
+    .fcard li { display: flex; gap: 14px; align-items: flex-start; font-size: 18px; font-weight: 500; line-height: 1.45; }
     .fcard.no li { color: var(--muted); }
-    .fcard.yes li::before { content: "✓"; position: absolute; left: 0; color: var(--leaf); font-weight: 700; }
-    .fcard.no li::before { content: "—"; position: absolute; left: 0; color: var(--faint); }
+    .fcard .ic { flex: 0 0 auto; margin-top: 2px; }
+    .fcard.no .dash { color: var(--faint-3); font-weight: 700; flex: 0 0 auto; }
 
-    /* privacy */
-    .priv { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
-    .priv .p { text-align: center; }
-    .priv .ic { font-size: 22px; }
-    .priv h4 { font-family: var(--display); font-weight: 600; font-size: 16px; margin: 12px 0 6px; }
-    .priv p { color: var(--muted); font-size: 13.5px; margin: 0; }
+    .priv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px,1fr)); gap: 18px; margin-top: 50px; }
+    .priv-card { display: flex; gap: 18px; align-items: flex-start; background: var(--surface);
+      border: 1px solid var(--line-card); border-radius: 20px; padding: 26px; box-shadow: 0 16px 40px -32px rgba(80,60,30,.5); }
+    .priv-ic { width: 48px; height: 48px; border-radius: 14px; background: var(--accent-tint);
+      display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+    .priv-card h4 { font-size: 19px; font-weight: 800; margin: 2px 0 0; }
+    .priv-card p { font-size: 15px; line-height: 1.55; color: var(--muted); margin: 8px 0 0; }
+    .priv-sub { font-size: 18px; line-height: 1.55; color: var(--muted); margin: 16px auto 0; font-weight: 500; max-width: 680px; }
 
-    /* how it works */
-    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
-    .step .k { font-family: var(--display); font-weight: 700; font-size: 15px; color: #fff; background: var(--accent);
-      width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; margin-bottom: 14px; }
-    .step h4 { font-family: var(--display); font-weight: 600; font-size: 20px; margin: 0 0 8px; }
-    .step p { color: var(--muted); font-size: 15px; margin: 0; }
+    .steps { display: flex; gap: 22px; margin-top: 56px; flex-wrap: wrap; align-items: stretch; }
+    .step { flex: 1; min-width: 270px; display: flex; flex-direction: column; background: var(--surface);
+      border: 1px solid var(--line-card); border-radius: 22px; padding: 28px; box-shadow: 0 18px 46px -34px rgba(80,60,30,.55); }
+    .step-num { display: flex; align-items: center; gap: 12px; }
+    .step-num .n { width: 38px; height: 38px; border-radius: 11px; background: var(--accent); color: #fff;
+      display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 17px; box-shadow: 0 6px 16px rgba(93,76,230,.32); }
+    .step-num .lab { font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .14em; color: var(--faint-3); }
+    .step-vis { margin-top: 22px; height: 62px; border-radius: 14px; background: #f7f2e8; border: 1px solid #efe7d6; display: flex; align-items: center; padding: 0 16px; gap: 9px; }
+    .step h3 { font-size: 24px; font-weight: 800; letter-spacing: -.02em; margin: 22px 0 0; }
+    .step p { font-size: 16px; line-height: 1.6; color: var(--soft); margin: 10px 0 0; }
+    .rec-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--coral-deep); flex: 0 0 auto; box-shadow: 0 0 0 4px rgba(216,80,58,.16); }
+    .rec-lbl { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--coral); }
+    .rec-time { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+    .rec-bars { margin-left: auto; display: flex; gap: 3px; align-items: center; height: 22px; }
+    .rec-bars i { width: 3px; background: #d2cab9; border-radius: 2px; }
+    .step-tracks { flex-direction: column; justify-content: center; align-items: stretch; gap: 7px; }
+    .stk { display: flex; align-items: center; gap: 8px; }
+    .stk .who { font-family: var(--mono); font-size: 10px; font-weight: 700; width: 34px; flex: 0 0 auto; }
+    .stk.you .who { color: var(--accent); } .stk.them .who { color: var(--coral); }
+    .stk .w { display: flex; gap: 3px; height: 13px; flex: 1; }
+    .stk.you .w { align-items: flex-end; } .stk.them .w { align-items: flex-start; }
+    .stk .w i { flex: 1; border-radius: 1px; }
+    .stk.you .w i { background: var(--accent-played); } .stk.them .w i { background: var(--coral-played); }
+    .step-act .chk { width: 20px; height: 20px; border-radius: 6px; background: var(--green); color: #fff;
+      display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex: 0 0 auto; }
+    .step-act .t { font-size: 13.5px; font-weight: 600; color: #a79d8c; text-decoration: line-through; line-height: 1.2; }
+    .step-act .p { font-family: var(--mono); font-weight: 600; font-size: 11px; padding: 4px 8px; border-radius: 7px;
+      background: var(--accent-tint); color: var(--accent); flex: 0 0 auto; margin: 0 0 0 auto; }
 
     /* final CTA */
-    .final { background: var(--accent-soft); border-radius: 28px; padding: 64px 40px; text-align: center; }
-    .final h2 { margin-bottom: 14px; }
-    .final p { color: var(--muted); max-width: 26rem; margin: 0 auto 26px; }
-    .wl { display: flex; gap: 8px; max-width: 440px; margin: 0 auto; }
-    .wl input[type=email] { flex: 1; font-family: var(--body); font-size: 15px; color: var(--ink);
-      background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-pill); padding: 13px 20px; outline: none; }
-    .wl input[type=email]:focus { border-color: var(--accent-line); }
-    .wl .hp { position: absolute; left: -9999px; }
-    .wl-msg { margin-top: 14px; font-size: 14px; font-weight: 500; min-height: 20px; }
-    .wl-msg.ok { color: var(--leaf); }
-    .wl-msg.err { color: var(--rose); }
+    .final-sec { max-width: 1060px; margin: 120px auto 0; padding: 0 30px; }
+    .final-panel { background: linear-gradient(160deg, #ece9fb 0%, #e4e0fa 100%); border-radius: 28px;
+      padding: clamp(40px,7vw,84px) 30px; text-align: center; border: 1px solid #ddd7f6; }
+    .final-panel h2 { font-size: clamp(32px,5vw,58px); line-height: 1.04; font-weight: 800; letter-spacing: -.03em; margin: 0; }
+    .final-panel p { font-size: 18px; line-height: 1.55; color: var(--soft); max-width: 480px; margin: 18px auto 0; font-weight: 500; }
+    .final-cta { margin-top: 30px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+    .final-cta .hero-note { margin: 0; }
 
-    footer.lp-foot { padding: 40px 0 60px; color: var(--faint); font-size: 13.5px; display: flex; align-items: center; gap: 16px; }
-    footer.lp-foot .spacer { margin-left: auto; }
-    footer.lp-foot a { color: var(--muted); text-decoration: none; }
+    /* footer */
+    .lp-foot { max-width: 1060px; margin: 50px auto 0; padding: 30px; display: flex; align-items: center;
+      justify-content: space-between; flex-wrap: wrap; gap: 16px; border-top: 1px solid var(--line); }
+    .lp-foot .copy { font-family: var(--mono); font-size: 13px; color: var(--faint); }
+    .lp-foot .links { display: flex; gap: 26px; }
+    .lp-foot a { font-weight: 600; font-size: 15px; color: var(--soft); }
 
     @media (max-width: 820px) {
-      .diff, .fornot, .priv, .steps { grid-template-columns: 1fr; }
-      .diff:nth-child(even) .diff-text { order: 0; }
-      .priv { grid-template-columns: 1fr 1fr; }
+      .diff, .diff.rev { flex-direction: column; }
+      .priv-grid { grid-template-columns: 1fr; }
+      .lp-nav .links { gap: 16px; }
+      .lp-nav .navlink { display: none; }
     }
-    @media (max-width: 520px) { .wl { flex-direction: column; } .priv { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
-  <div class="lp">
 
-    <!-- nav -->
+  <div class="lp-wrap">
     <nav class="lp-nav">
       <a class="brand" href="/"><span class="brand-mark">G</span><span class="brand-word">Gotcha</span></a>
-      <span class="spacer"></span>
-      <a class="navlink" href="#how">How it works</a>
-      <a class="navlink" href="#privacy">Privacy</a>
-      <a class="navlink" href="/login">Sign in</a>
-      <a class="cta cta--sm" href="/login">Get started</a>
+      <div class="links">
+        <a class="navlink" href="#how-it-works">How it works</a>
+        <a class="navlink" href="#privacy">Privacy</a>
+        <a class="navlink" href="/app">Open app</a>
+        <a class="nav-cta" href="/login">Get started</a>
+      </div>
     </nav>
+  </div>
 
-    <!-- hero -->
-    <header class="hero">
-      <p class="eyebrow">The meeting decoder for Hinglish standups</p>
-      <h1>Know exactly what your lead <em>meant</em> — and what you need to do.</h1>
-      <p class="sub">An interpreter for Hinglish dev-team meetings. <b>Not another note-taker.</b></p>
-      <div class="hero-cta">
-        <a class="cta" href="/login">Get started — it's free</a>
-        <span class="hero-note">Mac app · free during beta · no meeting bot</span>
+  <header class="hero">
+    <div class="eyebrow">The meeting decoder for Hinglish standups</div>
+    <h1>Know exactly what your lead <em>meant</em> — and what you need to do.</h1>
+    <p class="sub">An interpreter for Hinglish dev-team meetings. <b>Not another note-taker.</b></p>
+    <div class="hero-cta-row"><a class="cta" href="/login">Get started — it's free</a></div>
+    <div class="hero-note">Mac app · free during beta · no meeting bot</div>
+  </header>
+
+  <!-- interactive decode player -->
+  <section class="demo-sec">
+    <div class="try-chip-wrap"><div class="try-chip">▸ Try it live — tap play, or jump to any moment</div></div>
+    <div class="demo-window" id="demo">
+      <div class="demo-titlebar">
+        <div style="display:flex;align-items:center">
+          <div class="demo-dots"><span></span><span></span><span></span></div>
+          <span class="dt-name">Daily Standup <span>— decoded</span></span>
+        </div>
+        <button class="mute-btn" id="d-mute">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5d4ce6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" id="d-mute-on" style="display:none"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 9a4 4 0 0 1 0 6"/></svg>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a7f70" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" id="d-mute-off"><path d="M4 9v6h4l5 4V5L8 9H4z"/><line x1="17" y1="9" x2="22" y2="15"/><line x1="22" y1="9" x2="17" y2="15"/></svg>
+          <span id="d-mute-label">Sound off</span>
+        </button>
       </div>
-
-      <!-- product shot, built from the real warm components -->
-      <div class="shot-frame" aria-hidden="true">
-        <div class="shot-bar"><i></i><i></i><i></i></div>
-        <p class="shot-greet">Good evening, <b>you</b> — here's what mattered.</p>
-        <p class="shot-title">Daily Standup, decoded</p>
-
-        <div class="section" style="margin-bottom:26px">
-          <p class="section-eyebrow">The gist</p>
-          <div class="summary-prose">You're shipping the mic silence-trim to bring cost down<span class="pill">2.4s</span>, and Priya flagged the Windows recorder has no owner<span class="pill">9.3s</span>.</div>
+      <div class="demo-body">
+        <div class="demo-greet">Good evening, <b>you</b> — here's what mattered.</div>
+        <div class="demo-controls">
+          <button class="demo-play idle" id="d-play">
+            <svg width="14" height="14" viewBox="0 0 16 16" id="d-play-ic"><path d="M3.5 2.2l10.3 5.8L3.5 13.8z" fill="#fff"/></svg>
+            <span id="d-pause-ic" style="display:none;gap:3px"><span style="width:4px;height:14px;background:#fff;border-radius:1px"></span><span style="width:4px;height:14px;background:#fff;border-radius:1px"></span></span>
+            <span id="d-play-label">Play this standup</span>
+          </button>
+          <button class="demo-restart" id="d-restart" title="Restart">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8a7f70" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/></svg>
+          </button>
+          <div class="demo-time"><span class="cur" id="d-cur">0.0s</span> / <span id="d-dur">11.0s</span></div>
         </div>
 
-        <div class="section" style="margin-bottom:26px">
-          <p class="section-eyebrow" style="color:var(--rose)">What they really meant</p>
-          <div class="decode-card">
-            <p class="dc-tag">Priya said</p>
-            <div class="dc-said"><q lang="hi">तुम core का मत छेड़ो अभी।</q><span class="pill">3.3s</span></div>
-            <p class="dc-arrow">↓ really means</p>
-            <p class="dc-meant"><b>Don't touch the core DB this sprint.</b> Use the production creds already sent.</p>
+        <div class="demo-wave">
+          <div class="demo-wave-labels"><span class="you">You</span><span class="them">Them</span></div>
+          <div class="demo-wave-rows">
+            <div class="demo-row you" id="d-you"></div>
+            <div class="demo-row them" id="d-them"></div>
+            <div class="demo-playhead" id="d-playhead"></div>
+            <div class="demo-playdot" id="d-playdot"></div>
           </div>
         </div>
 
-        <div class="section" style="margin-bottom:0">
-          <p class="section-eyebrow" style="color:var(--leaf)">Your action item</p>
-          <div class="action">
-            <span class="act-box"></span>
-            <div class="act-main"><div class="act-row"><span class="act-task">Point local at the production DB and run ingest</span><span class="prio prio--high">High</span></div>
-            <div class="act-source"><span class="pill">5.0s</span></div></div>
+        <div class="demo-caption" id="d-caption">
+          <span class="hint">Press play to replay the standup — every line is timestamped and tappable.</span>
+        </div>
+
+        <div class="demo-report">
+          <div class="demo-block" id="d-gist">
+            <div class="demo-kick gist">THE GIST</div>
+            <p class="gist-p">You're shipping the mic silence-trim to bring cost down <span class="dpill" data-seek="2.4">▸ 2.4s</span>, and Priya flagged the Windows recorder has no owner <span class="dpill" data-seek="9.3">▸ 9.3s</span>.</p>
           </div>
-        </div>
-      </div>
-    </header>
-
-    <!-- pain -->
-    <section class="band">
-      <div class="pain">
-        <p>"I missed half of what my lead said, and I'm too embarrassed to ask again. Just tell me what I need to do."</p>
-        <p class="who">— every junior dev in a fast Hinglish standup</p>
-      </div>
-    </section>
-
-    <!-- differentiators -->
-    <section class="band-tight" id="why">
-      <div class="center" style="margin-bottom:48px">
-        <p class="sec-eyebrow">Why it's different</p>
-        <h2 class="sec">Most tools summarize the meeting.<br>Gotcha interprets it — for you.</h2>
-      </div>
-
-      <div class="diff">
-        <div class="diff-text">
-          <p class="diff-num">01 · Interprets, not summarizes</p>
-          <h3>Decodes the indirect Hinglish</h3>
-          <p>When your lead is vague or talks around it, Gotcha tells you what they <span class="hi">actually meant</span> — not a tidy transcript of words you already heard and still didn't understand.</p>
-        </div>
-        <div class="diff-visual">
-          <div class="decode-card" style="margin:0">
-            <p class="dc-tag">what was said</p>
-            <div class="dc-said"><q lang="hi">तुमको core का नहीं भेजा, production का।</q></div>
-            <p class="dc-arrow">↓ what they really meant</p>
-            <p class="dc-meant"><b>Use the production credentials I already sent.</b> The core-DB ones aren't coming — stop waiting.</p>
+          <div class="demo-block" id="d-meant" style="margin-top:22px">
+            <div class="demo-kick meant">WHAT THEY REALLY MEANT</div>
+            <div class="demo-meant-card">
+              <div class="demo-kick meant" style="font-size:10.5px;letter-spacing:.1em">PRIYA SAID</div>
+              <div class="said">“<span lang="hi">तुम core का मत छेड़ो अभी।</span>” <span class="dpill" data-seek="3.3">▸ 3.3s</span></div>
+              <div class="demo-kick meant" style="font-size:10.5px;letter-spacing:.1em;margin-top:16px">↓ REALLY MEANS</div>
+              <div class="means"><b>Don't touch the core DB this sprint.</b> <span>Use the production creds already sent.</span></div>
+            </div>
           </div>
-        </div>
-      </div>
-
-      <div class="diff">
-        <div class="diff-text">
-          <p class="diff-num">02 · Knows who said what</p>
-          <h3>Your voice, separated from theirs</h3>
-          <p>Gotcha records <span class="hi">you and the call on two tracks</span>, so it never confuses your words with your lead's — and it can filter the whole meeting down to <span class="hi">your</span> tasks alone.</p>
-        </div>
-        <div class="diff-visual">
-          <div class="tracks">
-            <div class="trk you"><span class="who">You</span><span class="wave"><i style="height:40%"></i><i style="height:70%"></i><i style="height:30%"></i><i style="height:85%"></i><i style="height:50%"></i><i style="height:20%"></i><i style="height:60%"></i><i style="height:35%"></i><i style="height:75%"></i><i style="height:45%"></i></span></div>
-            <div class="trk them"><span class="who">Them</span><span class="wave"><i style="height:60%"></i><i style="height:30%"></i><i style="height:80%"></i><i style="height:45%"></i><i style="height:25%"></i><i style="height:70%"></i><i style="height:40%"></i><i style="height:90%"></i><i style="height:35%"></i><i style="height:55%"></i></span></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="diff">
-        <div class="diff-text">
-          <p class="diff-num">03 · Replayable proof</p>
-          <h3>Every claim links to the second</h3>
-          <p>Because Gotcha keeps the audio, every conclusion is a <span class="hi">tappable timestamp</span>. Trust it in a glance — and never get sent down the wrong path by a misheard instruction.</p>
-        </div>
-        <div class="diff-visual">
-          <div class="action" style="margin:0">
-            <span class="act-box"></span>
-            <div class="act-main">
-              <div class="act-row"><span class="act-task">Ship the VAD mic-trim</span><span class="prio prio--high">High</span></div>
-              <div class="act-source"><span class="pill">5.0s</span><span class="act-quote">"haan woh cost wala fix kar do"</span></div>
+          <div class="demo-block" id="d-act" style="margin-top:22px">
+            <div class="demo-kick act">YOUR ACTION ITEMS</div>
+            <div class="demo-actions">
+              <div class="demo-action"><div class="da-box"></div><span class="da-task">Ship the VAD mic-trim</span><span class="da-prio">High</span><span class="dpill da-pill" data-seek="5.0">▸ 5.0s</span></div>
+              <div class="demo-action"><div class="da-box"></div><span class="da-task">Point local at the production DB and run ingest</span><span class="da-prio">High</span><span class="dpill da-pill" data-seek="5.0">▸ 5.0s</span></div>
             </div>
           </div>
         </div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <!-- who it's for / not for -->
-    <section class="band-tight">
-      <div class="center" style="margin-bottom:36px"><h2 class="sec">Built for one person, on purpose</h2></div>
-      <div class="fornot">
-        <div class="fcard yes">
-          <p class="lab">Made for you if</p>
-          <ul>
-            <li>You're a junior-to-mid dev on a Hinglish-speaking team</li>
-            <li>You feel a step behind in dense standups and KT sessions</li>
-            <li>You walk out unsure what was decided or what's yours to do</li>
-          </ul>
-        </div>
-        <div class="fcard no">
-          <p class="lab">Not for</p>
-          <ul>
-            <li>English-speaking solo consultants on 1:1 client calls</li>
-            <li>People who already take great notes and just want them tidied</li>
-            <li>Teams wanting a bot to announce itself and sit in every call</li>
-          </ul>
-        </div>
-      </div>
-    </section>
+  <!-- dark band -->
+  <section class="band">
+    <div class="band-glow"></div>
+    <div class="band-inner">
+      <div class="eyebrow">Say less</div>
+      <div class="band-phrase" id="band-phrase">Mumbled half in Hindi, half in English?</div>
+      <h2>Gotcha<span>.</span></h2>
+      <p>Just hit record and talk like you always do. We catch the Hinglish, the mumbling, the <em>“tum samajh rahe ho na”</em> — and hand you the plain version. <b>We literally got you.</b></p>
+      <div class="band-cta"><a class="cta" href="/login">Get Gotcha for your standups</a></div>
+    </div>
+  </section>
 
-    <!-- privacy -->
-    <section class="band-tight" id="privacy">
-      <div class="center" style="margin-bottom:40px">
-        <p class="sec-eyebrow">Private by design</p>
-        <h2 class="sec">It only listens when you do.</h2>
-      </div>
-      <div class="priv">
-        <div class="p"><div class="ic">🎙️</div><h4>No bot, no announcement</h4><p>Records locally on your Mac. Nothing joins the call.</p></div>
-        <div class="p"><div class="ic">👆</div><h4>On-demand only</h4><p>Captures solely while you hold a meeting and press Record.</p></div>
-        <div class="p"><div class="ic">🔒</div><h4>Encrypted &amp; no-train</h4><p>Encrypted in transit and at rest; never used to train a model.</p></div>
-        <div class="p"><div class="ic">🗑️</div><h4>Yours to delete</h4><p>Your audio and reports stay yours — delete any of it, anytime.</p></div>
-      </div>
-    </section>
+  <!-- why it's different -->
+  <section class="sec">
+    <div class="sec-head">
+      <div class="eyebrow">Why it's different</div>
+      <h2>Most tools summarize the meeting.<br>Gotcha interprets it <span class="hi">— for you.</span></h2>
+    </div>
 
-    <!-- how it works -->
-    <section class="band-tight" id="how">
-      <div class="center" style="margin-bottom:40px"><h2 class="sec">Three taps from lost to sorted</h2></div>
-      <div class="steps">
-        <div class="step"><div class="k">1</div><h4>Record</h4><p>One tap when the meeting starts. No bot, no link to paste.</p></div>
-        <div class="step"><div class="k">2</div><h4>Decode</h4><p>Gotcha separates the voices and reads between the lines.</p></div>
-        <div class="step"><div class="k">3</div><h4>Act</h4><p>Get your decisions and tasks, each linked to the exact moment.</p></div>
+    <div class="diff">
+      <div>
+        <div class="diff-num">01 · INTERPRETS, NOT SUMMARIZES</div>
+        <h3>Decodes the indirect Hinglish</h3>
+        <p>When your lead is vague or talks around it, Gotcha tells you what they <b>actually meant</b> — not a tidy transcript of words you already heard and still didn't understand.</p>
       </div>
-    </section>
-
-    <!-- final CTA -->
-    <section class="band" id="get">
-      <div class="final">
-        <h2 class="sec">Stop guessing what you missed.</h2>
-        <p>Free during beta. Sign in with Google or an email link, then download the Mac app — no invite to wait for.</p>
-        <div class="hero-cta">
-          <a class="cta" href="/login">Get started — it's free</a>
-          <span class="hero-note">No passwords · no meeting bot · your audio stays yours</span>
+      <div>
+        <div class="mini-decode">
+          <div class="k k1">WHAT WAS SAID</div>
+          <div class="said" lang="hi">“तुमको core का नहीं भेजा, production का।”</div>
+          <div class="k k2">↓ WHAT THEY REALLY MEANT</div>
+          <div class="means"><b>Use the production credentials I already sent.</b> <span>The core-DB ones aren't coming — stop waiting.</span></div>
         </div>
       </div>
-    </section>
+    </div>
 
-    <!-- footer -->
-    <footer class="lp-foot">
-      <span>© Gotcha · the meeting decoder</span>
-      <span class="spacer"></span>
-      <a href="/login">Sign in</a>
-      <a href="#privacy">Privacy</a>
-    </footer>
+    <div class="diff rev" style="margin-top:80px">
+      <div>
+        <div class="diff-num">02 · KNOWS WHO SAID WHAT</div>
+        <h3>Your voice, separated from theirs</h3>
+        <p>Gotcha records <b>you and the call on two tracks</b>, so it never confuses your words with your lead's — and it can filter the whole meeting down to <b>your</b> tasks alone.</p>
+      </div>
+      <div>
+        <div class="mini-card mini-tracks">
+          <div class="mini-trk you"><span class="who">You</span><span class="mini-wave"><i style="height:14px"></i><i style="height:24px"></i><i style="height:12px"></i><i style="height:28px"></i><i style="height:16px"></i><i style="height:22px"></i><i style="height:13px"></i><i style="height:26px"></i><i style="height:18px"></i><i style="height:20px"></i></span></div>
+          <div class="mini-trk them" style="margin-top:12px"><span class="who">Them</span><span class="mini-wave"><i style="height:20px"></i><i style="height:12px"></i><i style="height:26px"></i><i style="height:16px"></i><i style="height:24px"></i><i style="height:14px"></i><i style="height:22px"></i><i style="height:12px"></i><i style="height:18px"></i><i style="height:24px"></i></span></div>
+        </div>
+      </div>
+    </div>
 
-  </div>
+    <div class="diff" style="margin-top:80px">
+      <div>
+        <div class="diff-num">03 · REPLAYABLE PROOF</div>
+        <h3>Every claim links to the second</h3>
+        <p>Because Gotcha keeps the audio, every conclusion is a <b>tappable timestamp</b>. Trust it in a glance — and never get sent down the wrong path by a misheard instruction.</p>
+      </div>
+      <div>
+        <div class="mini-card mini-action">
+          <div class="row1"><span class="box"></span><span class="task">Ship the VAD mic-trim</span><span class="da-prio">High</span></div>
+          <div class="row2"><span class="dpill lit" style="cursor:default">▸ 5.0s</span><span class="quote">"haan woh cost wala fix kar do"</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- built for one person -->
+  <section class="sec">
+    <div class="sec-head"><h2 style="margin:0">Built for one person, on purpose</h2></div>
+    <div class="fornot">
+      <div class="fcard yes">
+        <div class="lab">MADE FOR YOU IF</div>
+        <ul>
+          <li><svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2f9468" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg><span>You're a junior-to-mid dev on a Hinglish-speaking team</span></li>
+          <li><svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2f9468" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg><span>You feel a step behind in dense standups and KT sessions</span></li>
+          <li><svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2f9468" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg><span>You walk out unsure what was decided or what's yours to do</span></li>
+        </ul>
+      </div>
+      <div class="fcard no">
+        <div class="lab">NOT FOR</div>
+        <ul>
+          <li><span class="dash">—</span><span>English-speaking solo consultants on 1:1 client calls</span></li>
+          <li><span class="dash">—</span><span>People who already take great notes and just want them tidied</span></li>
+          <li><span class="dash">—</span><span>Teams wanting a bot to announce itself and sit in every call</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- privacy -->
+  <section class="sec" id="privacy">
+    <div class="sec-head" style="max-width:680px;margin:0 auto">
+      <div class="eyebrow">Private by design</div>
+      <h2 style="margin-top:16px">It only listens when you do.</h2>
+      <p class="priv-sub">Your meetings are sensitive. We built Gotcha to treat them that way — four promises, no asterisks.</p>
+    </div>
+    <div class="priv-grid">
+      <div class="priv-card">
+        <div class="priv-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5d4ce6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0"/><line x1="12" y1="17" x2="12" y2="21"/><line x1="9" y1="21" x2="15" y2="21"/></svg></div>
+        <div><h4>No bot, no announcement</h4><p>Records right on your Mac. No mystery bot slides into the call with a name nobody recognises.</p></div>
+      </div>
+      <div class="priv-card">
+        <div class="priv-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5d4ce6" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="#5d4ce6" stroke="none"/></svg></div>
+        <div><h4>On-demand only</h4><p>It captures only while you're in a meeting and you've pressed Record. The rest of your day stays yours.</p></div>
+      </div>
+      <div class="priv-card">
+        <div class="priv-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5d4ce6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></div>
+        <div><h4>Encrypted &amp; never trained on</h4><p>Encrypted in transit and at rest. Your meetings never become someone's training data — full stop.</p></div>
+      </div>
+      <div class="priv-card">
+        <div class="priv-ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5d4ce6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/></svg></div>
+        <div><h4>Yours to delete</h4><p>Every recording and report belongs to you. Delete any of it, anytime — no support ticket, no questions.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- how it works -->
+  <section class="sec" id="how-it-works">
+    <div class="sec-head">
+      <div class="eyebrow">How it works</div>
+      <h2 style="margin-top:16px">Three taps from lost to sorted</h2>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num"><div class="n">1</div><div class="lab">STEP 01</div></div>
+        <div class="step-vis"><span class="rec-dot"></span><span class="rec-lbl">REC</span><span class="rec-time">0:01</span><span class="rec-bars"><i style="height:9px"></i><i style="height:17px"></i><i style="height:11px"></i><i style="height:20px"></i><i style="height:8px"></i><i style="height:14px"></i></span></div>
+        <h3>Record</h3>
+        <p>Hit record when the call kicks off. No bot barging in, no link to paste, nobody the wiser.</p>
+      </div>
+      <div class="step">
+        <div class="step-num"><div class="n">2</div><div class="lab">STEP 02</div></div>
+        <div class="step-vis step-tracks">
+          <div class="stk you"><span class="who">You</span><span class="w"><i style="height:7px"></i><i style="height:13px"></i><i style="height:6px"></i><i style="height:11px"></i><i style="height:8px"></i><i style="height:13px"></i><i style="height:7px"></i></span></div>
+          <div class="stk them"><span class="who">Them</span><span class="w"><i style="height:11px"></i><i style="height:6px"></i><i style="height:13px"></i><i style="height:8px"></i><i style="height:12px"></i><i style="height:7px"></i><i style="height:10px"></i></span></div>
+        </div>
+        <h3>Decode</h3>
+        <p>Gotcha splits the voices and reads between the lines — Hinglish, hedging and all.</p>
+      </div>
+      <div class="step">
+        <div class="step-num"><div class="n">3</div><div class="lab">STEP 03</div></div>
+        <div class="step-vis step-act"><span class="chk">✓</span><span class="t">Point local at the prod DB</span><span class="p">▸ 5.0s</span></div>
+        <h3>Act</h3>
+        <p>Walk away with your decisions and tasks, each pinned to the exact second. Sorted.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- final CTA -->
+  <section class="final-sec">
+    <div class="final-panel">
+      <h2>Stop guessing what you missed.</h2>
+      <p>Free during beta. Sign in with Google or an email link, then grab the Mac app — no invite to wait for.</p>
+      <div class="final-cta">
+        <a class="cta" href="/login">Get started — it's free</a>
+        <span class="hero-note">No passwords · no meeting bot · your audio stays yours</span>
+      </div>
+    </div>
+  </section>
+
+  <footer class="lp-foot">
+    <div class="copy">© Gotcha · the meeting decoder</div>
+    <div class="links"><a href="/app">Open app</a><a href="#privacy">Privacy</a></div>
+  </footer>
+
+  <script>
+  (function () {
+    var DUR = 11, N = 46;
+    var lines = [
+      { t: 0.0, sp: "Priya", track: "them", tx: "Chalo, standup shuru karte hain. Updates do." },
+      { t: 2.4, sp: "You",   track: "you",  tx: "Maine mic ka silence-trim laga diya — cost down ho jayegi." },
+      { t: 3.3, sp: "Priya", track: "them", tx: "तुम core का मत छेड़ो अभी।" },
+      { t: 5.0, sp: "Priya", track: "them", tx: "haan, woh cost wala fix kar do." },
+      { t: 9.3, sp: "Arjun", track: "them", tx: "Windows recorder ka owner kaun hai?" }
+    ];
+    var phrases = [
+      "Mumbled half in Hindi, half in English?",
+      "Three people talking over each other?",
+      "Zoned out for ten whole seconds?",
+      "Too embarrassed to ask “kya bola”?",
+      "Lead said “wahi karo” and dipped?"
+    ];
+    var rnd = function (s) { var x = Math.sin(s * 99.137) * 43758.5453; return x - Math.floor(x); };
+    var youH = [], themH = [];
+    for (var i = 0; i < N; i++) { youH.push(6 + Math.round(rnd(i + 1) * 30)); themH.push(6 + Math.round(rnd(i + 137) * 30)); }
+
+    var $ = function (id) { return document.getElementById(id); };
+    var t = 0, playing = false, started = false, muted = true, timer = null, last = 0;
+
+    // build bars
+    var youRow = $("d-you"), themRow = $("d-them"), youBars = [], themBars = [];
+    for (var k = 0; k < N; k++) {
+      var by = document.createElement("i"); by.style.height = youH[k] + "px"; youRow.appendChild(by); youBars.push(by);
+      var bt = document.createElement("i"); bt.style.height = themH[k] + "px"; themRow.appendChild(bt); themBars.push(bt);
+    }
+
+    function lineAt(tt) { var r = 0; for (var j = 0; j < lines.length; j++) if (lines[j].t <= tt + 1e-6) r = j; return r; }
+    function render() {
+      var pct = Math.min(100, t / DUR * 100);
+      for (var j = 0; j < N; j++) {
+        youBars[j].style.background = (j / N * DUR) <= t ? "#6b5cf0" : "#ded7c8";
+        themBars[j].style.background = (j / N * DUR) <= t ? "#df6450" : "#ded7c8";
+      }
+      var ph = $("d-playhead"), pd = $("d-playdot");
+      ph.style.left = pct + "%"; ph.style.opacity = started ? 0.5 : 0;
+      pd.style.left = pct + "%"; pd.style.opacity = started ? 1 : 0;
+      $("d-cur").textContent = t.toFixed(1) + "s";
+
+      // caption
+      var cap = $("d-caption");
+      if (!started) {
+        cap.innerHTML = '<span class="hint">Press play to replay the standup — every line is timestamped and tappable.</span>';
+      } else {
+        var ln = lines[lineAt(t)], you = ln.track === "you";
+        cap.innerHTML = '<span class="cap-chip ' + (you ? "you" : "them") + '">' + ln.sp + '</span>' +
+          '<span class="cap-text"' + (ln.tx.match(/[ऀ-ॿ]/) ? ' lang="hi"' : "") + '>' + ln.tx + '</span>' +
+          (playing ? '<span class="cap-eq"><span></span><span></span><span></span></span>' : "");
+      }
+
+      // report ramps
+      ramp($("d-gist"), 2.4); ramp($("d-meant"), 3.3); ramp($("d-act"), 5.0);
+      // pills lit
+      document.querySelectorAll(".dpill[data-seek]").forEach(function (p) {
+        if (p.style.cursor === "default") return;
+        p.classList.toggle("lit", t >= parseFloat(p.dataset.seek) - 1e-6);
+      });
+
+      // play button
+      $("d-play-label").textContent = playing ? "Pause" : (started ? "Resume" : "Play this standup");
+      $("d-play-ic").style.display = playing ? "none" : "";
+      $("d-pause-ic").style.display = playing ? "inline-flex" : "none";
+      $("d-play").classList.toggle("idle", !started);
+      $("d-play").classList.toggle("started", started);
+    }
+    function ramp(el, T) {
+      var o = Math.max(0, Math.min(1, (t - T) / 0.5));
+      el.style.opacity = o; el.style.transform = "translateY(" + ((1 - o) * 12).toFixed(1) + "px)";
+      el.style.pointerEvents = o > 0.98 ? "auto" : "none";
+    }
+    // init ramps hidden
+    [["d-gist"], ["d-meant"], ["d-act"]].forEach(function (x) { var e = $(x[0]); e.style.opacity = 0; e.style.pointerEvents = "none"; });
+
+    function tick() {
+      var now = performance.now(); var dt = Math.min(0.2, (now - last) / 1000); last = now;
+      t += dt;
+      if (t >= DUR) { t = DUR; playing = false; stop(); render(); return; }
+      render();
+    }
+    function start() { var atEnd = t >= DUR - 1e-6; if (atEnd) t = 0; playing = true; started = true; last = performance.now(); stop(); timer = setInterval(tick, 40); render(); }
+    function pause() { playing = false; stop(); render(); }
+    function stop() { if (timer) { clearInterval(timer); timer = null; } }
+    function seek(v) { stop(); playing = false; started = true; t = Math.max(0, Math.min(DUR, v)); render(); }
+
+    $("d-play").onclick = function () { playing ? pause() : start(); };
+    $("d-restart").onclick = function () { stop(); playing = false; started = false; t = 0; render(); };
+    document.querySelectorAll(".dpill[data-seek]").forEach(function (p) {
+      if (p.style.cursor === "default") return;
+      p.onclick = function () { seek(parseFloat(p.dataset.seek)); };
+    });
+    document.querySelectorAll(".demo-action .da-box").forEach(function (box) {
+      box.onclick = function () {
+        var on = box.classList.toggle("checked");
+        box.textContent = on ? "✓" : "";
+        box.closest(".demo-action").classList.toggle("checked", on);
+      };
+    });
+    $("d-mute").onclick = function () {
+      muted = !muted;
+      $("d-mute-on").style.display = muted ? "none" : "block"; $("d-mute-off").style.display = muted ? "block" : "none";
+      $("d-mute-label").textContent = muted ? "Sound off" : "Sound on";
+    };
+
+    // rotating band phrase
+    var pi = 0;
+    setInterval(function () { pi = (pi + 1) % phrases.length; $("band-phrase").textContent = phrases[pi]; }, 2600);
+
+    render();
+  })();
+  </script>
 </body>
 </html>

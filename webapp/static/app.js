@@ -4,6 +4,7 @@
 const TAURI = !!window.__TAURI__;
 const invoke = TAURI ? window.__TAURI__.core.invoke : null;
 const DEFAULT_SERVER = "http://localhost:8000";
+const DEFAULT_REC_NAME = "meeting";
 // Web: the app is served BY the backend, so it's same-origin — use relative paths
 // and authenticate by the session cookie. Desktop: a different origin (tauri://),
 // so it targets the stored server URL and authenticates by bearer token.
@@ -12,14 +13,17 @@ const serverUrl = () =>
 const authToken = () => (TAURI ? localStorage.getItem("gotcha_token") || "" : "");
 
 /* ── state ───────────────────────────────────────────────────────────── */
-let current = null;       // { base, transcript, tracks, your_name }
+let current = null;       // { base, transcript, tracks, your_name, name }
 let recSession = null;    // { base, system_path, mic_path } from native start
-let pendingRec = null;    // captured-but-not-yet-uploaded session (awaiting the post-rec modal)
+let pendingRec = null;    // captured-but-not-yet-uploaded session
 let recording = false;
 let timerId = null;
 let pollId = null;
 let trackMode = "mix";    // mix | mic (You) | system (Them)
-let lastClip = null;      // { ts, chipEl }
+let lastClip = null;      // { ts, chip }
+let waveBars = { you: [], them: [] };
+const meetingDur = {};    // base → audio duration (s), filled lazily from <audio> metadata
+const NB = 80;            // bars per waveform row
 const PROCESSING = new Set(["queued", "recording", "transcribing", "interpreting"]);
 
 const $ = (s) => document.querySelector(s);
@@ -27,13 +31,14 @@ const listEl = $("#meeting-list");
 const reportEl = $("#report");
 const recBtn = $("#rec-btn");
 const recTimer = $("#rec-timer");
-const recName = $("#rec-name");
 const recText = recBtn.querySelector(".rec-text");
 const player = $("#player");
-const playerLabel = $("#player-label");
-const playerEq = $("#player-eq");
+const playerBar = $("#player-bar");
+const playerFile = $("#player-file");
+const titlePill = $("#current-title");
+const titleInput = $("#title-input");
 
-/* ── toasts (in-app feedback, replaces alert) ────────────────────────── */
+/* ── toasts (bottom-center dark pill) ────────────────────────────────── */
 function toast(msg, kind) {
   const wrap = document.getElementById("toasts");
   if (!wrap) { console.warn(msg); return; }
@@ -42,7 +47,7 @@ function toast(msg, kind) {
   el.textContent = msg;
   wrap.appendChild(el);
   requestAnimationFrame(() => el.classList.add("in"));
-  setTimeout(() => { el.classList.remove("in"); setTimeout(() => el.remove(), 220); }, 3600);
+  setTimeout(() => { el.classList.remove("in"); setTimeout(() => el.remove(), 220); }, 3200);
 }
 
 /* ── tiny helpers ────────────────────────────────────────────────────── */
@@ -51,9 +56,6 @@ async function api(path, opts) {
   const headers = Object.assign({}, opts.headers);
   const tok = authToken();
   if (tok) headers["Authorization"] = "Bearer " + tok;
-  // Web is same-origin, so the session cookie is sent by default (no
-  // credentials:'include' — that would trip the wildcard-CORS rule on the
-  // cross-origin desktop webview, which authenticates by bearer header anyway).
   const res = await fetch(serverUrl() + path, Object.assign({}, opts, { headers }));
   if (!res.ok) {
     let msg = res.statusText;
@@ -65,11 +67,10 @@ async function api(path, opts) {
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const fmtTime = (s) => {
-  s = Math.max(0, Math.floor(s));
-  return String((s / 60) | 0).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+  s = Math.max(0, Math.floor(s || 0));
+  return String((s / 60) | 0) + ":" + String(s % 60).padStart(2, "0");
 };
-const pillHTML = (ts) =>
-  `<span class="pill" data-ts="${ts}"><span class="pill-rec"></span>${ts}s<span class="pill-play">▶</span></span>`;
+const pillHTML = (ts) => `<span class="pill" data-ts="${ts}">${(+ts).toFixed(1)}s</span>`;
 // escape → bold → turn [Ns] citations into receipt pills
 function mdInline(str) {
   let h = esc(str).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
@@ -113,10 +114,10 @@ function renderDecode(body) {
     }
     if (!meaning && it.subs.length) meaning = it.subs.join(" ").replace(/^\*\*.*?:\*\*\s*/, "");
     return `<div class="decode-card">
-        <p class="dc-tag">what your lead said</p>
+        <div class="dc-tag">THEY SAID</div>
         <div class="dc-said"><q>${esc(quote)}</q>${ts ? pillHTML(ts) : ""}</div>
-        <p class="dc-arrow">↓ what they really meant</p>
-        <p class="dc-meant">${mdInline(meaning)}</p>
+        <div class="dc-arrow">↓ REALLY MEANS</div>
+        <div class="dc-meant">${mdInline(meaning)}</div>
       </div>`;
   }).join("");
 }
@@ -130,8 +131,6 @@ function renderActions(body) {
     const vm = task.match(/\((verify[^)]*)\)/i);
     if (vm) { verify = vm[1]; task = task.replace(vm[0], "").trim(); }
 
-    // How is often emitted as a header with nested sub-bullets (one param per
-    // line), so collect every line after **How:** until the next known key.
     let level = "", why = "", source = "";
     const howLines = []; let collectingHow = false;
     for (const s of it.subs) {
@@ -142,24 +141,26 @@ function renderActions(body) {
       else if ((m = s.match(/^\*\*\s*How:?\s*\*\*\s*(.*)/i))) { collectingHow = true; if (m[1].trim()) howLines.push(m[1].trim()); }
       else if (collectingHow && s.trim()) { howLines.push(s.trim()); }
     }
-    // one param per line; also fold "key: value; key: value" inline lists
     const howHTML = howLines.map((l) => mdInline(l).replace(/;\s+/g, "<br>")).join("<br>");
     const lvlWord = (level.match(/^(High|Medium|Low)/i) || [, ""])[1];
+    const chipLabel = /^medium$/i.test(lvlWord) ? "Med" : lvlWord;
     const pclass = PCLASS[lvlWord.toLowerCase()] || "prio--med";
     const ts = tsIn(source);
     let quote = source.replace(/\[[^\]]*\]/, "").trim().replace(/^[“"']|[”"']$/g, "");
 
-    return `<div class="action" data-prio="${esc(lvlWord || "Medium")}">
-        <span class="act-box"></span>
-        <div class="act-main">
-          <div class="act-row">
-            <span class="act-task">${esc(task)}</span>
-            ${lvlWord ? `<span class="prio ${pclass}" title="${esc(level)}">${esc(lvlWord)}</span>` : ""}
-            ${verify ? `<span class="act-verify">${esc(verify)}</span>` : ""}
+    return `<div class="action"${ts ? ` data-ts="${ts}"` : ""} data-prio="${esc(lvlWord || "Medium")}">
+        <div class="action-inner">
+          <div class="act-box" role="checkbox" aria-checked="false" tabindex="0"></div>
+          <div class="act-main">
+            <div class="act-row">
+              <span class="act-task">${esc(task)}</span>
+              ${lvlWord ? `<span class="prio ${pclass}" title="${esc(level)}">${esc(chipLabel)}</span>` : ""}
+              ${verify ? `<span class="act-verify">${esc(verify)}</span>` : ""}
+            </div>
+            ${why ? `<p class="act-why">${mdInline(why)}</p>` : ""}
+            ${ts ? `<div class="act-source">${pillHTML(ts)}${quote ? `<span class="act-quote">“${esc(quote)}”</span>` : ""}</div>` : ""}
+            ${howHTML ? `<details class="act-how"><summary>HOW TO DO IT</summary><div class="act-how-body">${howHTML}</div></details>` : ""}
           </div>
-          ${why ? `<p class="act-why">${mdInline(why)}</p>` : ""}
-          ${ts ? `<div class="act-source">${pillHTML(ts)}<span class="act-quote">“${esc(quote)}”</span></div>` : ""}
-          ${howHTML ? `<details class="act-how" open><summary>how to do it</summary><div class="act-how-body">${howHTML}</div></details>` : ""}
         </div>
       </div>`;
   }).join("");
@@ -174,15 +175,7 @@ function renderQuestions(body) {
     const ts = tsIn(it.head);
     let q = it.head.replace(/\bat\s*\[[^\]]*\]/i, "").replace(/\[[^\]]*\]/, "");
     q = stripStars(q).replace(/^[“"']|[”"']$/g, "").trim();
-    let quote = "";
-    for (const s of it.subs) {
-      const m = s.match(/^\*\*\s*Source:?\s*\*\*\s*(.*)/i);
-      if (m) { quote = m[1].replace(/\[[^\]]*\]/, "").trim().replace(/^[“"']|[”"']$/g, ""); break; }
-    }
-    return `<div class="q-card">
-        <p class="q-text">${mdInline(q)}</p>
-        ${ts ? `<div class="act-source">${pillHTML(ts)}${quote ? `<span class="act-quote">“${esc(quote)}”</span>` : ""}</div>` : ""}
-      </div>`;
+    return `<div class="q-card"><span class="q-text">${mdInline(q)} ${ts ? pillHTML(ts) : ""}</span></div>`;
   }).join("");
 }
 
@@ -191,7 +184,7 @@ function classify(title, idx) {
   const t = title.toLowerCase();
   if (/really meant|lead/.test(t)) return "decode";
   if (/open question|to verify|unresolved|to confirm/.test(t)) return "questions";
-  if (/action item|your task|to.?do/.test(t)) return "actions";
+  if (/action item|your task|to.?do|your move/.test(t)) return "actions";
   if (/summary|decision/.test(t)) return "summary";
   return ["summary", "decode", "actions", "questions"][idx] || "summary";
 }
@@ -208,14 +201,17 @@ function renderReport(md) {
     const rawTitle = (nl === -1 ? chunk : chunk.slice(0, nl)).replace(/^\d+\.\s*/, "").trim();
     const body = nl === -1 ? "" : chunk.slice(nl + 1);
     const kind = classify(rawTitle, i);
+    const tag = kind === "summary" ? "h1" : "h2";
+    const wrapOpen = kind === "actions" ? '<div class="actions-wrap">' : kind === "questions" ? '<div class="questions-wrap">' : "";
+    const wrapClose = wrapOpen ? "</div>" : "";
     const inner = kind === "decode" ? renderDecode(body)
       : kind === "actions" ? renderActions(body)
       : kind === "questions" ? renderQuestions(body)
       : renderSummary(body);
-    html += `<section class="section reveal">
-        <p class="section-eyebrow">${EYEBROW[kind]}</p>
-        <h3 class="section-title">${esc(rawTitle)}</h3>
-        ${inner}
+    html += `<section class="report-section kind-${kind} reveal">
+        <div class="section-eyebrow">${EYEBROW[kind]}</div>
+        <${tag} class="section-title">${esc(rawTitle)}</${tag}>
+        ${wrapOpen}${inner}${wrapClose}
       </section>`;
   });
   return html;
@@ -225,7 +221,8 @@ function renderReport(md) {
 function badge(state, hasReport) {
   if (state === "error") return '<span class="badge error">failed</span>';
   if (state === "parked") return '<span class="badge parked">parked</span>';
-  if (PROCESSING.has(state)) return `<span class="badge processing">${state}</span>`;
+  if (state === "recording") return '<span class="badge recording">recording</span>';
+  if (PROCESSING.has(state)) return `<span class="badge processing">decoding</span>`;
   if (hasReport) return '<span class="badge done">ready</span>';
   return "";
 }
@@ -249,18 +246,18 @@ function renderMeetingList() {
   if (!shown.length) {
     const li = document.createElement("li");
     li.className = "list-empty";
-    li.textContent = q ? "No meetings match." : "No meetings yet — hit Record.";
+    li.textContent = q ? `No meetings match “${q}”.` : "No meetings yet — hit Record.";
     listEl.appendChild(li);
     return;
   }
   for (const m of shown) {
+    const dur = meetingDur[m.base] ? fmtTime(meetingDur[m.base]) : "—";
     const li = document.createElement("li");
     if (current && current.base === m.base) li.classList.add("active");
     li.dataset.base = m.base;
     li.innerHTML =
-      `<div class="mi-name">${esc(m.name || m.base)}</div>` +
-      `<div class="mi-meta"><span class="mi-date">${esc(fmtDate(m.created))}</span>` +
-      `${badge(m.state, m.has_report)}</div>` +
+      `<div class="mi-top"><span class="mi-name">${esc(m.name || m.base)}</span>${badge(m.state, m.has_report)}</div>` +
+      `<div class="mi-meta">${esc(fmtDate(m.created))} · ${esc(dur)}</div>` +
       `<button class="mi-del" title="Delete meeting" aria-label="Delete meeting">✕</button>`;
     li.onclick = () => openMeeting(m.base);
     li.querySelector(".mi-del").onclick = (e) => { e.stopPropagation(); deleteMeeting(m.base); };
@@ -276,23 +273,43 @@ async function loadMeetings(autoOpen) {
   if (autoOpen && !current && allMeetings[0]) openMeeting(allMeetings[0].base, true);
 }
 
-/* rename (display name only — base/files unchanged) + export the report markdown */
-async function renameMeeting(base) {
-  const m = allMeetings.find((x) => x.base === base);
-  let name = null;
-  try { name = window.prompt("Rename meeting", (m && m.name) || base); } catch (_) {}
-  if (name == null) return;
-  name = name.trim();
-  if (!name) return;
+/* ── rename (inline in the header pill) + export ─────────────────────── */
+function startRename() {
+  if (!current) return;
+  const name = (allMeetings.find((x) => x.base === current.base) || {}).name || current.name || current.base;
+  titlePill.hidden = true;
+  titleInput.hidden = false;
+  titleInput.value = name;
+  titleInput.focus();
+  titleInput.select();
+}
+function cancelRename() { titleInput.hidden = true; titlePill.hidden = false; }
+async function commitRename() {
+  if (titleInput.hidden) return;
+  const name = (titleInput.value || "").trim();
+  cancelRename();
+  if (!name || !current) return;
+  if (name === titlePill.textContent) return;
   try {
-    await api("/api/meetings/" + encodeURIComponent(base), {
+    await api("/api/meetings/" + encodeURIComponent(current.base), {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
     });
   } catch (e) { toast("Couldn't rename: " + e.message, "err"); return; }
+  setTitle(name);
   toast("Renamed", "ok");
   await loadMeetings();
 }
+function setTitle(name) {
+  if (name) { titlePill.textContent = name; titlePill.classList.remove("empty"); }
+  else { titlePill.textContent = "No meeting selected"; titlePill.classList.add("empty"); }
+}
+titlePill.onclick = () => { if (current) startRename(); };
+titleInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") commitRename();
+  else if (e.key === "Escape") cancelRename();
+});
+titleInput.addEventListener("blur", commitRename);
 
 function exportReport(base, mdText) {
   if (!mdText) { toast("No report to export yet.", "err"); return; }
@@ -303,19 +320,21 @@ function exportReport(base, mdText) {
   a.href = URL.createObjectURL(blob); a.download = fname;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  toast("Exported " + fname, "ok");
+  toast(`Exported “${(m && m.name) || base}” decode to Markdown.`, "ok");
 }
 
+/* ── open a meeting ──────────────────────────────────────────────────── */
 async function openMeeting(base, quiet) {
   let m;
   try { m = await api("/api/meetings/" + encodeURIComponent(base)); }
   catch (e) { reportEl.innerHTML = `<div class="status-line error">${esc(e.message)}</div>`; return; }
 
-  current = { base, transcript: m.transcript || [], tracks: m.tracks || {}, your_name: m.your_name };
-  [...listEl.children].forEach((li) => li.classList.toggle("active", li.dataset.base === base));
+  const meta = allMeetings.find((x) => x.base === base) || {};
+  current = { base, transcript: m.transcript || [], tracks: m.tracks || {}, your_name: m.your_name, name: meta.name || base };
+  setTitle(current.name);
+  [...listEl.children].forEach((li) => li.classList && li.classList.toggle("active", li.dataset && li.dataset.base === base));
 
-  // Re-interpret is possible whenever the transcript was saved (the paid step is
-  // done) — recovers a failed/old report for free, no re-record, no Sarvam.
+  // Re-interpret is possible whenever the transcript was saved (the paid step is done).
   const canReinterpret = (m.transcript || []).length > 0;
 
   let html = "";
@@ -323,13 +342,14 @@ async function openMeeting(base, quiet) {
     html += `<div class="status-line error">Couldn’t finish this one: ${esc(m.error || "unknown error")}</div>`;
     if (canReinterpret) html += `<div class="error-actions"><button class="link-btn" id="reinterpret-btn">Re-interpret (free)</button></div>`;
   } else if (PROCESSING.has(m.state)) {
-    html += `<div class="status-line">Working on it — ${esc(m.state)}. This takes a few minutes.</div>`;
+    html += decodingPanel();
   }
 
   if (m.report_md) {
     try { html += renderReport(m.report_md); }
     catch (_) { html += `<div class="report-fallback">${m.report_html || ""}</div>`; }
-    html += `<div class="report-actions">
+    html += `<div class="report-hr"></div>
+      <div class="report-actions">
         <button class="link-btn" id="rename-btn">Rename</button>
         <button class="link-btn" id="export-btn">Export</button>
         ${canReinterpret ? `<button class="link-btn" id="reinterpret-btn">Re-interpret</button>` : ""}
@@ -348,21 +368,28 @@ async function openMeeting(base, quiet) {
   reportEl.innerHTML = html;
   revealIn(reportEl);
 
-  primePlayer();  // ready the audio so Play works without needing a timestamp
+  primePlayer();  // ready the audio so Play works without a citation
 
   const decodeBtn = $("#decode-btn");
   if (decodeBtn) decodeBtn.onclick = () => decodeMeeting(base);
-
   const reBtn = $("#reinterpret-btn");
   if (reBtn) reBtn.onclick = () => reinterpretMeeting(base);
-
   const renameBtn = $("#rename-btn");
-  if (renameBtn) renameBtn.onclick = () => renameMeeting(base);
+  if (renameBtn) renameBtn.onclick = startRename;
   const exportBtn = $("#export-btn");
   if (exportBtn) exportBtn.onclick = () => exportReport(base, m.report_md);
 
   if (PROCESSING.has(m.state)) pollMeeting(base);
-  if (!quiet) document.getElementById("workspace").scrollIntoView({ behavior: "smooth", block: "start" });
+  if (!quiet) document.getElementById("workspace").scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function decodingPanel() {
+  return `<div class="decoding-panel reveal">
+      <div class="decoding-badge"><span class="dot"></span>DECODING</div>
+      <h2>Decoding your meeting…</h2>
+      <p>Separating the two voices and reading between the lines. This usually takes under a minute.</p>
+      <div class="shimmer-bars"><i style="width:90%"></i><i style="width:100%"></i><i style="width:74%"></i></div>
+    </div>`;
 }
 
 function pollMeeting(base) {
@@ -377,9 +404,9 @@ function pollMeeting(base) {
   }, 3000);
 }
 
-/* ── citation → audio (the receipt, playing) ─────────────────────────── */
+/* ── custom two-track player ─────────────────────────────────────────── */
 function resolveTrack(mode) {
-  const t = current.tracks || {};
+  const t = (current && current.tracks) || {};
   if (mode === "mic" && t.mic) return "mic";
   if (mode === "system" && t.system) return "system";
   if (mode === "mix" && t.mix) return "mix";
@@ -388,125 +415,222 @@ function resolveTrack(mode) {
 
 function trackSrc(track) {
   const url = `${serverUrl()}/api/audio/${encodeURIComponent(current.base)}/${track}`;
-  // Desktop sends the token in the query (the <audio> element can't set a header);
-  // web is same-origin so the session cookie rides along automatically.
   const tok = authToken();
   return tok ? url + `?token=${encodeURIComponent(tok)}` : url;
 }
 
-let pendingMeta = null;  // a not-yet-fired loadedmetadata seek handler from a prior load
-
-// Point the player at a track. seekSecs: jump there once seekable; autoplay: play after.
-// Seek and play are decoupled so a stale handler from a previous meeting/track can never
-// fire against the new source, and an interrupted play() never leaves a phantom state.
+let pendingMeta = null;
 function loadTrack(track, { seekSecs = null, autoplay = false } = {}) {
   if (!current || !track) return;
-  // Drop any seek handler still pending from an earlier load — it belongs to old audio.
   if (pendingMeta) { player.removeEventListener("loadedmetadata", pendingMeta); pendingMeta = null; }
-
   const src = trackSrc(track);
-  if (player.dataset.src !== src) {
-    player.dataset.src = src; player.src = src; player.load();
-  }
-
+  if (player.dataset.src !== src) { player.dataset.src = src; player.src = src; player.load(); }
   if (seekSecs != null) {
     const applySeek = () => { try { player.currentTime = +seekSecs; } catch (_) {} };
-    if (player.readyState >= 1) applySeek();          // metadata already available
+    if (player.readyState >= 1) applySeek();
     else {
-      pendingMeta = () => {
-        pendingMeta = null;
-        if (player.dataset.src === src) applySeek();  // guard: only the intended source
-      };
+      pendingMeta = () => { pendingMeta = null; if (player.dataset.src === src) applySeek(); };
       player.addEventListener("loadedmetadata", pendingMeta, { once: true });
     }
   }
-
-  if (autoplay) {
-    const p = player.play();                          // kicks the fetch under preload="none"
-    if (p && p.catch) p.catch(() => {});              // swallow AbortError on rapid switches
-  }
+  if (autoplay) { const p = player.play(); if (p && p.catch) p.catch(() => {}); }
 }
 
-// Prime the player when a meeting opens so the native play button works even
-// without clicking a citation (and for reports that have no citations at all).
+// Seeded bar heights (deterministic per base), mirroring the design's seedBars.
+function seededHeights(seed) {
+  const a = [];
+  for (let i = 0; i < NB; i++) {
+    const x = Math.sin((i + 1) * 12.9898 + seed * 78.233) * 43758.5453;
+    a.push(3 + Math.round((x - Math.floor(x)) * 15));
+  }
+  return a;
+}
+function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h) % 997 + 1; }
+
+function renderWave(base) {
+  const seed = hashStr(base || "x");
+  const youH = seededHeights(seed), themH = seededHeights(seed + 7);
+  const build = (heights, rowEl) => {
+    rowEl.innerHTML = "";
+    const bars = [];
+    for (const h of heights) {
+      const b = document.createElement("i");
+      b.style.height = h + "px";
+      rowEl.appendChild(b);
+      bars.push(b);
+    }
+    return bars;
+  };
+  waveBars.you = build(youH, $("#wave-you"));
+  waveBars.them = build(themH, $("#wave-them"));
+  paintWave();
+}
+
+function paintWave() {
+  const dur = player.duration || 0;
+  const t = player.currentTime || 0;
+  const frac = dur ? t / dur : 0;
+  const fill = (bars, color) => {
+    for (let i = 0; i < bars.length; i++) bars[i].style.background = (i / NB) <= frac ? color : "var(--wave-off)";
+  };
+  fill(waveBars.you, "var(--accent-played)");
+  fill(waveBars.them, "var(--coral-played)");
+  if (current && dur && isFinite(dur) && meetingDur[current.base] !== dur) {
+    meetingDur[current.base] = dur;   // cache the real length → refresh the sidebar label once
+    renderMeetingList();
+  }
+  const ph = $("#wave-playhead");
+  ph.style.left = (Math.min(1, frac) * 100) + "%";
+  ph.style.opacity = (player.currentTime > 0 || !player.paused) ? 0.45 : 0;
+  $("#t-cur").textContent = fmtTime(t);
+  $("#t-tot").textContent = fmtTime(dur);
+  paintActive(t);
+}
+
+function paintActive(t) {
+  const playing = !player.paused;
+  document.querySelectorAll(".action[data-ts]").forEach((el) => {
+    const ts = parseFloat(el.dataset.ts);
+    const on = playing && t >= ts && (t - ts) < 1.6;
+    el.classList.toggle("active", on);
+  });
+}
+
+function applyTrackDim() {
+  $("#wave-you").style.opacity = trackMode === "system" ? 0.16 : 1;
+  $("#wave-them").style.opacity = trackMode === "mic" ? 0.16 : 1;
+}
+function trackWord() { return trackMode === "mic" ? "you" : trackMode === "system" ? "them" : "mix"; }
+
+function setFileLabel() {
+  if (!current) { playerFile.textContent = "No meeting playing"; return; }
+  playerFile.textContent = `${current.base} · ${trackWord()}`;
+}
+
 function primePlayer() {
   lastClip = null;
   document.querySelectorAll(".pill.playing").forEach((c) => c.classList.remove("playing"));
   player.pause();
+  renderWave(current.base);
+  applyTrackDim();
   const track = resolveTrack(trackMode);
   if (!track) {
     if (pendingMeta) { player.removeEventListener("loadedmetadata", pendingMeta); pendingMeta = null; }
     player.removeAttribute("src"); player.dataset.src = ""; player.load();
-    playerLabel.textContent = "No audio for this meeting.";
+    playerFile.textContent = `${current.base} · no audio`;
+    paintWave();
     return;
   }
-  loadTrack(track);  // set source, ready to play from the start
-  playerLabel.textContent = `${current.base} · ${track}`;
+  loadTrack(track);
+  setFileLabel();
 }
 
 function seekTo(ts, chip) {
   if (!current) return;
   const track = resolveTrack(trackMode);
-  if (!track) { playerLabel.textContent = "No audio was recorded for this meeting."; return; }
+  if (!track) { toast("No audio was recorded for this meeting.", "err"); return; }
   lastClip = { ts, chip };
   document.querySelectorAll(".pill.playing").forEach((c) => c.classList.remove("playing"));
   if (chip) chip.classList.add("playing");
-  playerLabel.textContent = `${current.base} · ${track} · ${(+ts).toFixed(1)}s`;
   loadTrack(track, { seekSecs: +ts, autoplay: true });
 }
 
+// report pills seek the player
 reportEl.addEventListener("click", (ev) => {
+  const box = ev.target.closest(".act-box");
+  if (box) {
+    const checked = box.classList.toggle("checked");
+    box.setAttribute("aria-checked", checked ? "true" : "false");
+    box.closest(".action").classList.toggle("checked", checked);
+    box.innerHTML = checked ? "✓" : "";
+    return;
+  }
   const chip = ev.target.closest(".pill, .cite");
-  if (!chip || !current) return;
-  const ts = parseFloat(chip.dataset.ts);
-  if (!isNaN(ts)) seekTo(ts, chip);
+  if (chip && current) { const ts = parseFloat(chip.dataset.ts); if (!isNaN(ts)) seekTo(ts, chip); }
 });
 
+// play / pause
+$("#play-btn").onclick = () => {
+  if (!current) return;
+  if (player.paused) { const p = player.play(); if (p && p.catch) p.catch(() => {}); }
+  else player.pause();
+};
+
+// click waveform to seek
+$("#wave").onclick = (e) => {
+  if (!current) return;
+  const track = resolveTrack(trackMode);
+  if (!track) return;
+  const r = e.currentTarget.getBoundingClientRect();
+  const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+  if (player.duration) { player.currentTime = f * player.duration; if (player.paused) { const p = player.play(); if (p && p.catch) p.catch(() => {}); } }
+  else loadTrack(track, { autoplay: true });
+};
+
+// track segment (Mix / You / Them)
 document.querySelectorAll("#track-seg button").forEach((btn) => {
   btn.onclick = () => {
     document.querySelectorAll("#track-seg button").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     trackMode = btn.dataset.mode;
+    applyTrackDim();
     if (!current) return;
     const track = resolveTrack(trackMode);
+    setFileLabel();
     if (!track) return;
-    // Re-point to the chosen side, preserving position + play state — no citation needed.
     const at = player.currentTime || 0;
     const wasPlaying = !player.paused;
     loadTrack(track, { seekSecs: at, autoplay: wasPlaying });
-    playerLabel.textContent = lastClip
-      ? `${current.base} · ${track} · ${(+lastClip.ts).toFixed(1)}s`
-      : `${current.base} · ${track}`;
   };
 });
 
-player.addEventListener("play", () => playerEq.classList.add("on"));
-player.addEventListener("pause", () => playerEq.classList.remove("on"));
+// volume + mute
+const vol = $("#vol");
+function reflectMute() {
+  const muted = player.muted || player.volume === 0;
+  // Use explicit display, not the `hidden` property — SVGElement doesn't honor it.
+  $("#vol-btn .ic-on").style.display = muted ? "none" : "block";
+  $("#vol-btn .ic-off").style.display = muted ? "block" : "none";
+}
+vol.addEventListener("input", () => { player.volume = parseFloat(vol.value); player.muted = player.volume === 0; reflectMute(); });
+$("#vol-btn").onclick = () => {
+  player.muted = !player.muted;
+  if (!player.muted && player.volume === 0) { player.volume = 0.8; vol.value = "0.8"; }
+  reflectMute();
+};
+player.volume = 0.8;
+
+player.addEventListener("timeupdate", paintWave);
+player.addEventListener("durationchange", paintWave);
+player.addEventListener("loadedmetadata", paintWave);
+player.addEventListener("play", () => playerBar.classList.add("playing"));
+player.addEventListener("pause", () => playerBar.classList.remove("playing"));
 player.addEventListener("ended", () => {
-  playerEq.classList.remove("on");
+  playerBar.classList.remove("playing");
   document.querySelectorAll(".pill.playing").forEach((c) => c.classList.remove("playing"));
+  paintWave();
 });
 
 /* ── record control (native capture via Tauri → upload) ──────────────── */
 async function startRecording() {
-  if (!TAURI) { toast("Recording needs the Gotcha desktop app.", "err"); return; }
+  if (!TAURI) { openRecordModal(); return; }
   if (!authToken()) { openSettings(); return; }
   recBtn.disabled = true;
   try {
-    recSession = await invoke("start_recording", { name: recName.value || "meeting" });
+    recSession = await invoke("start_recording", { name: DEFAULT_REC_NAME });
   } catch (e) {
     const msg = String(e);
-    if (/[Pp]ermission/.test(msg)) openPerm();   // guide the grant instead of a dead-end toast
+    if (/[Pp]ermission/.test(msg)) openPerm();
     else toast("Couldn't start recording: " + msg, "err");
     recBtn.disabled = false; return;
   }
   recording = true;
   recText.textContent = "Stop";
   recBtn.classList.add("recording");
-  recBtn.disabled = false; recName.disabled = true;
+  recBtn.disabled = false;
   recTimer.hidden = false;
   let secs = 0; recTimer.textContent = "00:00";
-  timerId = setInterval(() => { secs++; recTimer.textContent = fmtTime(secs); }, 1000);
+  timerId = setInterval(() => { secs++; recTimer.textContent = String((secs / 60 | 0)).padStart(2, "0") + ":" + String(secs % 60).padStart(2, "0"); }, 1000);
 }
 
 async function stopRecording() {
@@ -517,12 +641,10 @@ async function stopRecording() {
   catch (e) { toast("Stop failed: " + e, "err"); resetRecUI(); return; }
   resetRecUI();
   recSession = null;
-  pendingRec = sess;     // capture is on disk; let the user add a glossary + decide
+  pendingRec = sess;
   openPostRec();
 }
 
-// Upload the just-captured tracks. processNow=true → decode immediately;
-// false → park it (stored, decode later from the catch-up CTA).
 async function finishUpload(processNow) {
   const sess = pendingRec; pendingRec = null;
   if (!sess) return;
@@ -533,7 +655,7 @@ async function finishUpload(processNow) {
   try {
     serverBase = await invoke("upload_recording", {
       serverUrl: serverUrl(), token: authToken(),
-      name: recName.value || "meeting",
+      name: DEFAULT_REC_NAME,
       systemPath: sess.system_path, micPath: sess.mic_path,
       glossary, process: processNow,
     });
@@ -547,7 +669,6 @@ async function finishUpload(processNow) {
 function openPostRec() { const d = $("#postrec"); d.showModal ? d.showModal() : (d.hidden = false); }
 function closePostRec() { const d = $("#postrec"); d.close ? d.close() : (d.hidden = true); }
 
-// Start decoding a parked meeting (audio already uploaded).
 async function decodeMeeting(base) {
   try { await api("/api/process/" + encodeURIComponent(base), { method: "POST" }); }
   catch (e) { toast("Couldn't start decoding: " + e.message, "err"); return; }
@@ -555,25 +676,25 @@ async function decodeMeeting(base) {
   openMeeting(base);
 }
 
-// Re-run ONLY the interpret step on a saved transcript (free — no Sarvam). Used to
-// recover a meeting whose interpret failed, or to refresh an existing report.
 async function reinterpretMeeting(base) {
   try { await api("/api/reinterpret/" + encodeURIComponent(base), { method: "POST" }); }
   catch (e) { toast("Couldn't start re-interpret: " + e.message, "err"); return; }
   await loadMeetings();
-  openMeeting(base);  // state is now "interpreting" → openMeeting starts polling
+  openMeeting(base);
 }
 
-// Permanently delete a meeting (audio + report + transcript). Irreversible, so it
-// asks first. Usage already billed isn't refunded (Sarvam was already paid).
 async function deleteMeeting(base) {
   if (!confirm(`Delete this meeting permanently?\n\n${base}\n\n` +
-      `This removes its recording, transcript and report. ` +
-      `This can’t be undone.`)) return;
+      `This removes its recording, transcript and report. This can’t be undone.`)) return;
   try { await api("/api/meetings/" + encodeURIComponent(base), { method: "DELETE" }); }
   catch (e) { toast("Couldn't delete: " + e.message, "err"); return; }
-  if (current && current.base === base) { current = null; reportEl.innerHTML = ""; }
+  if (current && current.base === base) { current = null; reportEl.innerHTML = ""; setTitle(null); primePlayerEmpty(); }
   await loadMeetings();
+}
+function primePlayerEmpty() {
+  player.pause(); player.removeAttribute("src"); player.dataset.src = "";
+  $("#wave-you").innerHTML = ""; $("#wave-them").innerHTML = "";
+  setFileLabel();
 }
 
 function resetRecUI() {
@@ -581,14 +702,74 @@ function resetRecUI() {
   if (timerId) { clearInterval(timerId); timerId = null; }
   recText.textContent = "Record";
   recBtn.classList.remove("recording");
-  recBtn.disabled = false; recName.disabled = false;
+  recBtn.disabled = false;
   recTimer.hidden = true;
 }
 recBtn.onclick = () => (recording ? stopRecording() : startRecording());
 $("#post-jump").onclick = () => finishUpload(true);
 $("#post-park").onclick = () => finishUpload(false);
 
-/* ── settings (server URL + token, stored locally) ───────────────────── */
+/* ── record modal (web) ──────────────────────────────────────────────── */
+function openRecordModal() { $("#record-modal").hidden = false; }
+function closeRecordModal() { $("#record-modal").hidden = true; }
+$("#record-modal-close").onclick = closeRecordModal;
+$("#record-modal").addEventListener("click", (e) => { if (e.target.id === "record-modal") closeRecordModal(); });
+
+/* ── settings: web popover vs desktop connect dialog ─────────────────── */
+const PREF_KEYS = ["twoTrack", "autoDecode", "sound"];
+function loadPrefs() {
+  document.querySelectorAll("#settings-pop .toggle-row").forEach((row) => {
+    const k = row.dataset.pref;
+    const on = localStorage.getItem("gotcha_pref_" + k) === "1";
+    row.querySelector(".knob").classList.toggle("on", on);
+  });
+}
+document.querySelectorAll("#settings-pop .toggle-row").forEach((row) => {
+  row.onclick = () => {
+    const k = row.dataset.pref;
+    const knob = row.querySelector(".knob");
+    const on = !knob.classList.contains("on");
+    knob.classList.toggle("on", on);
+    localStorage.setItem("gotcha_pref_" + k, on ? "1" : "0");
+  };
+});
+
+let currentUser = null;
+async function fillAccount() {
+  try { currentUser = await api("/api/auth/me"); } catch (_) {}
+  const u = currentUser || {};
+  const email = u.email || u.display_name || "Signed in";
+  $("#acct-email").textContent = email;
+  $("#acct-avatar").textContent = (email[0] || "G").toUpperCase();
+  const used = u.used_min != null ? Math.round(u.used_min) : 0;
+  const cap = u.cap_min != null ? Math.round(u.cap_min) : 0;
+  $("#acct-usage").textContent = cap ? `${used} of ${cap} min used` : `${used} min used`;
+}
+function toggleSettingsPop() {
+  const pop = $("#settings-pop");
+  if (pop.hidden) { loadPrefs(); fillAccount(); pop.hidden = false; }
+  else pop.hidden = true;
+}
+async function signOut() {
+  try { await api("/api/auth/logout", { method: "POST" }); } catch (_) {}
+  location.replace("/login");
+}
+$("#acct-signout").onclick = signOut;
+
+// Desktop keeps the server/token connect dialog; web gets the popover.
+$("#settings-btn").onclick = () => (TAURI ? openSettings() : toggleSettingsPop());
+
+// close popover on outside-click / Esc
+document.addEventListener("click", (e) => {
+  const pop = $("#settings-pop");
+  if (!pop || pop.hidden) return;
+  if (!pop.contains(e.target) && e.target.id !== "settings-btn" && !$("#settings-btn").contains(e.target)) pop.hidden = true;
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { const pop = $("#settings-pop"); if (pop && !pop.hidden) pop.hidden = true; if (!$("#record-modal").hidden) closeRecordModal(); }
+});
+
+/* ── desktop connect settings (server URL + token) ───────────────────── */
 function openSettings() {
   const dlg = $("#settings");
   $("#set-server").value = serverUrl();
@@ -605,44 +786,15 @@ function saveSettings(ev) {
 }
 $("#settings-form").addEventListener("submit", saveSettings);
 
-// Desktop: open the hosted login in the system browser. The server's post-login
-// redirect (gotcha://connect?server=&token=) binds us via the deep-link handler.
 const signinBtn = $("#signin-btn");
 if (signinBtn) signinBtn.onclick = async () => {
   const server = ($("#set-server").value.trim() || DEFAULT_SERVER).replace(/\/+$/, "");
-  localStorage.setItem("gotcha_server", server);   // so the deep-link return matches
+  localStorage.setItem("gotcha_server", server);
   if (!invoke) { toast("Sign-in needs the Gotcha desktop app.", "err"); return; }
   try { await invoke("open_signin", { serverUrl: server }); }
   catch (e) { toast("Couldn't open the browser: " + e, "err"); return; }
   toast("Finish signing in in your browser.", "ok");
 };
-
-/* ── account menu (web: cookie session) ──────────────────────────────── */
-let currentUser = null;
-async function openAccount() {
-  try { currentUser = await api("/api/auth/me"); } catch (_) {}
-  const u = currentUser || {};
-  const emailEl = $("#acct-email");
-  if (emailEl) emailEl.textContent = u.email || u.display_name || "Signed in";
-  const usageEl = $("#acct-usage");
-  if (usageEl) {
-    const used = u.used_min != null ? u.used_min : 0;
-    const cap = u.cap_min != null ? u.cap_min : 0;
-    usageEl.textContent = cap ? `${used} of ${cap} min used` : `${used} min used`;
-  }
-  const dlg = $("#account");
-  if (dlg) dlg.showModal ? dlg.showModal() : (dlg.hidden = false);
-}
-async function signOut() {
-  try { await api("/api/auth/logout", { method: "POST" }); } catch (_) {}
-  location.replace("/login");
-}
-// Desktop keeps the server/token connect panel; web gets the account menu.
-$("#settings-btn").onclick = () => (TAURI ? openSettings() : openAccount());
-const acctClose = $("#acct-close");
-if (acctClose) acctClose.onclick = () => { const d = $("#account"); d.close ? d.close() : (d.hidden = true); };
-const acctSignout = $("#acct-signout");
-if (acctSignout) acctSignout.onclick = signOut;
 
 /* ── zero-paste onboarding: gotcha://connect?server=&token= ──────────── */
 function applyConnectUrl(raw) {
@@ -658,15 +810,11 @@ function applyConnectUrl(raw) {
   } catch (_) { return false; }
 }
 if (TAURI && window.__TAURI__.event) {
-  // The site's "Open in Gotcha" link routes here via the Rust deep-link handler.
   window.__TAURI__.event.listen("deep-link", (e) => applyConnectUrl(e.payload));
 }
 
 /* ── permission wizard (opened when capture is blocked) ──────────────── */
-function openPerm() {
-  const dlg = $("#perm");
-  dlg.showModal ? dlg.showModal() : (dlg.hidden = false);
-}
+function openPerm() { const dlg = $("#perm"); dlg.showModal ? dlg.showModal() : (dlg.hidden = false); }
 document.querySelectorAll("#perm [data-pane]").forEach((b) => {
   b.onclick = () => { if (invoke) invoke("open_privacy_pane", { which: b.dataset.pane }); };
 });
@@ -675,7 +823,6 @@ if (permClose) permClose.onclick = () => { const d = $("#perm"); d.close ? d.clo
 const permRelaunch = $("#perm-relaunch");
 if (permRelaunch) permRelaunch.onclick = () => { if (invoke) invoke("relaunch"); };
 
-// Build a shareable connect link from the current settings (for an admin to send).
 const copyBtn = $("#copy-link");
 if (copyBtn) copyBtn.onclick = () => {
   const server = ($("#set-server").value.trim() || DEFAULT_SERVER).replace(/\/+$/, "");
@@ -686,35 +833,35 @@ if (copyBtn) copyBtn.onclick = () => {
   setTimeout(() => (copyBtn.textContent = "Copy connect link"), 1500);
 };
 
+/* ── sidebar collapse / expand ───────────────────────────────────────── */
+function setSidebar(open) {
+  $("#sidebar").hidden = !open;
+  $("#rail").hidden = open;
+}
+$("#collapse-btn").onclick = () => setSidebar(false);
+$("#reopen-btn").onclick = () => setSidebar(true);
+
 /* ── motion: one orchestrated reveal ─────────────────────────────────── */
 function revealIn(scope) {
   const els = (scope || document).querySelectorAll(".reveal:not(.in)");
   els.forEach((el, i) => setTimeout(() => el.classList.add("in"), 60 + i * 70));
 }
 
-// Legacy hero CTA only exists on the old combined page; guard for app.html.
-const heroCta = $("#hero-cta");
-if (heroCta) heroCta.onclick = () => {
-  document.getElementById("workspace").scrollIntoView({ behavior: "smooth", block: "start" });
-  if (!current) loadMeetings(true);
-};
-
 // Filter the meetings rail as you type.
 const searchEl = $("#meeting-search");
 if (searchEl) searchEl.addEventListener("input", renderMeetingList);
 
 /* ── boot ────────────────────────────────────────────────────────────── */
+reflectMute();
 revealIn(document);
 async function boot() {
-  // Establish identity first. Web: the session cookie decides app-vs-login.
-  // Desktop: the bearer token (set via the gotcha:// deep link or settings).
   try {
     currentUser = await api("/api/auth/me");
   } catch (e) {
-    if (!TAURI) { location.replace("/login"); return; }  // web: sign in to continue
-    if (!authToken()) { openSettings(); }                // desktop: not bound yet
+    if (!TAURI) { location.replace("/login"); return; }
+    if (!authToken()) { openSettings(); }
   }
-  loadMeetings(true);   // populate sidebar + auto-open newest into the workspace
+  loadMeetings(true);
   setInterval(() => loadMeetings(false), 8000);
 }
 boot();

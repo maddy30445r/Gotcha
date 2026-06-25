@@ -6,71 +6,142 @@
   <title>Gotcha</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Hanken+Grotesk:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500;1,700&family=JetBrains+Mono:wght@400;600;700&family=Noto+Sans+Devanagari:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body class="app-shell">
 
-  <!-- brand corner -->
-  <a class="brand" id="top" href="/"><span class="brand-mark">G</span><span class="brand-word">Gotcha</span></a>
+  <!-- ── header ─────────────────────────────────────────────────────── -->
+  <header class="app-header">
+    <a class="brand" id="top" href="/"><span class="brand-mark">G</span><span class="brand-word">Gotcha</span></a>
 
-  <!-- topbar: the one primary control (record) + settings -->
-  <header class="topbar">
-    <div class="rec">
-      <input id="rec-name" type="text" value="standup" aria-label="Recording name" />
+    <div class="header-right">
+      <div id="current-title" class="title-pill empty" title="Rename meeting">No meeting selected</div>
+      <input id="title-input" class="title-input" type="text" hidden aria-label="Rename meeting" />
+
       <button id="rec-btn" class="rec-btn">
         <span class="rec-glyph" aria-hidden="true"></span>
         <span class="rec-text">Record</span>
         <span id="rec-timer" class="rec-timer" hidden>00:00</span>
       </button>
+
+      <button id="settings-btn" class="icon-btn" title="Settings" aria-label="Settings">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+
+      <!-- settings popover (web: account + cosmetic toggles) -->
+      <div id="settings-pop" class="popover" hidden>
+        <div class="popover-head">SETTINGS</div>
+        <div class="toggle-row" data-pref="twoTrack"><span>Record both tracks separately</span><span class="knob"><i></i></span></div>
+        <div class="toggle-row" data-pref="autoDecode"><span>Auto-decode after each meeting</span><span class="knob"><i></i></span></div>
+        <div class="toggle-row" data-pref="sound"><span>Play a sound on new insights</span><span class="knob"><i></i></span></div>
+        <div class="popover-sep"></div>
+        <div class="acct-row">
+          <div class="acct-avatar" id="acct-avatar">G</div>
+          <div class="acct-meta">
+            <div class="acct-email" id="acct-email">—</div>
+            <div class="acct-usage" id="acct-usage"></div>
+          </div>
+          <button type="button" id="acct-signout" class="acct-signout">Sign out</button>
+        </div>
+      </div>
     </div>
-    <button id="settings-btn" class="icon-btn" title="Settings" aria-label="Settings">⚙</button>
   </header>
 
-  <!-- meetings rail -->
-  <aside class="sidebar">
-    <h2 class="side-head">Meetings</h2>
-    <label class="side-search">🔍<input id="meeting-search" type="search" placeholder="Search meetings" aria-label="Search meetings" /></label>
-    <ul id="meeting-list" class="meeting-list"></ul>
-  </aside>
+  <!-- ── body: sidebar + main ───────────────────────────────────────── -->
+  <div class="app-body">
 
-  <!-- the brief -->
-  <main class="workspace" id="workspace">
-    <section class="report-pane">
+    <!-- sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <div class="sidebar-head-row">
+          <div class="side-title">MEETINGS</div>
+          <button class="collapse-btn" id="collapse-btn" title="Collapse" aria-label="Collapse sidebar">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8a7f70" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="9" y1="4" x2="9" y2="20"/><path d="M16 9l-2 3 2 3"/></svg>
+          </button>
+        </div>
+        <label class="side-search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#b3a895" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input id="meeting-search" type="search" placeholder="Search meetings" aria-label="Search meetings" />
+        </label>
+      </div>
+      <ul id="meeting-list" class="meeting-list"></ul>
+    </aside>
+
+    <!-- collapsed rail -->
+    <div class="rail" id="rail" hidden>
+      <button class="reopen" id="reopen-btn" title="Show meetings" aria-label="Show meetings">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7a7163" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="9" y1="4" x2="9" y2="20"/><path d="M13 9l2 3-2 3"/></svg>
+      </button>
+      <div class="rail-label">MEETINGS</div>
+    </div>
+
+    <!-- main / report -->
+    <main class="main" id="workspace">
       <div id="report" class="report">
         <p class="report-empty">Pick a meeting on the left, or hit <b>Record</b> to capture one.</p>
       </div>
-    </section>
-  </main>
+    </main>
+  </div>
 
-  <!-- player: the receipt, playing -->
-  <footer class="player">
-    <div class="player-now">
-      <span class="player-eq" id="player-eq" aria-hidden="true"><i></i><i></i><i></i></span>
-      <span id="player-label" class="player-label">No moment playing — tap a timestamp to hear it</span>
+  <!-- ── player bar ─────────────────────────────────────────────────── -->
+  <footer class="player" id="player-bar">
+    <div class="player-file">
+      <div class="player-file-ic">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5d4ce6" stroke-width="1.9" stroke-linecap="round"><line x1="5" y1="14" x2="5" y2="10"/><line x1="10" y1="18" x2="10" y2="6"/><line x1="15" y1="15" x2="15" y2="9"/><line x1="20" y1="13" x2="20" y2="11"/></svg>
+      </div>
+      <div class="player-file-meta">
+        <div class="player-file-name" id="player-file">No meeting playing</div>
+        <div class="player-file-sub">two-track recording</div>
+      </div>
     </div>
+
+    <button class="play-btn" id="play-btn" aria-label="Play / pause">
+      <svg class="play" width="16" height="16" viewBox="0 0 16 16"><path d="M4 2.5l9 5.5-9 5.5z" fill="#fff"/></svg>
+      <span class="pause"><i></i><i></i></span>
+    </button>
+
+    <span class="t-cur" id="t-cur">0:00</span>
+
+    <div class="wave" id="wave">
+      <div class="wave-row you" id="wave-you"></div>
+      <div class="wave-row them" id="wave-them"></div>
+      <div class="wave-playhead" id="wave-playhead"></div>
+    </div>
+
+    <span class="t-tot" id="t-tot">0:00</span>
+
     <div class="seg" id="track-seg" role="group" aria-label="Which side to play">
       <button data-mode="mix" class="active">Mix</button>
       <button data-mode="mic">You</button>
       <button data-mode="system">Them</button>
     </div>
-    <audio id="player" controls preload="none"></audio>
+
+    <div class="player-vol">
+      <button class="vol-btn" id="vol-btn" aria-label="Mute">
+        <svg class="ic-on" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#5d4ce6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 9a4 4 0 0 1 0 6"/></svg>
+        <svg class="ic-off" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#7a7163" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M4 9v6h4l5 4V5L8 9H4z"/><line x1="17" y1="9" x2="22" y2="15"/><line x1="22" y1="9" x2="17" y2="15"/></svg>
+      </button>
+      <input id="vol" type="range" min="0" max="1" step="0.01" value="0.8" aria-label="Volume" />
+    </div>
   </footer>
 
-  <!-- account: who's signed in + usage + sign out (web, cookie session) -->
-  <dialog id="account" class="settings">
-    <div class="settings-form">
-      <h3 class="settings-title">Your account</h3>
-      <p class="acct-email" id="acct-email">—</p>
-      <p class="acct-usage" id="acct-usage"></p>
-      <div class="settings-actions">
-        <button type="button" id="acct-signout" class="ghost-btn">Sign out</button>
-        <button type="button" id="acct-close" class="cta cta--sm">Done</button>
+  <audio id="player" preload="none"></audio>
+
+  <!-- ── record modal (web: recording lives in the Mac app) ─────────── -->
+  <div class="modal-backdrop" id="record-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-ic"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#5d4ce6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0"/><line x1="12" y1="17" x2="12" y2="21"/><line x1="9" y1="21" x2="15" y2="21"/></svg></div>
+      <h3>Recording lives in the Mac app</h3>
+      <p>The web app is read-only — it can't capture your two-track audio. Open the Gotcha desktop app to record this meeting; your decodes show up here automatically.</p>
+      <div class="modal-actions">
+        <button type="button" class="ghost-btn" id="record-modal-close">Got it</button>
+        <a class="cta" href="/download.html">Get the Mac app</a>
       </div>
     </div>
-  </dialog>
+  </div>
 
-  <!-- settings: backend URL + access token -->
+  <!-- ── desktop-only dialogs (opened only inside Tauri) ────────────── -->
   <dialog id="settings" class="settings">
     <form id="settings-form" method="dialog" class="settings-form">
       <h3 class="settings-title">Connect to Gotcha</h3>
@@ -96,7 +167,6 @@
     </form>
   </dialog>
 
-  <!-- post-recording: glossary + decide now-or-later -->
   <dialog id="postrec" class="settings">
     <div class="settings-form">
       <h3 class="settings-title">Recording saved</h3>
@@ -113,7 +183,6 @@
     </div>
   </dialog>
 
-  <!-- permission wizard (shown when capture is blocked) -->
   <dialog id="perm" class="settings">
     <div class="settings-form">
       <h3 class="settings-title">Two quick permissions</h3>

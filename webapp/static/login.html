@@ -6,16 +6,16 @@
   <title>Sign in · Gotcha</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
   <style>
     body { display: grid; place-items: center; min-height: 100vh; height: auto;
-      background-image: radial-gradient(680px 320px at 50% -6%, #F1ECFB 0%, transparent 70%); }
+      background-image: radial-gradient(680px 320px at 50% -6%, #efeafb 0%, transparent 70%); }
     .card { width: 100%; max-width: 400px; margin: 24px; background: var(--surface);
-      border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow);
+      border: 1px solid var(--line-card); border-radius: var(--r-lg); box-shadow: var(--shadow);
       padding: 38px 34px; text-align: center; }
-    .card .brand { justify-content: center; padding: 0; border: none; margin-bottom: 22px; }
-    h1 { font-family: var(--display); font-weight: 600; font-size: 27px; letter-spacing: -.01em; margin: 0 0 6px; }
+    .card .brand { justify-content: center; margin-bottom: 22px; }
+    h1 { font-family: var(--display); font-weight: 800; font-size: 27px; letter-spacing: -.02em; margin: 0 0 6px; }
     .lede { color: var(--muted); font-size: 14.5px; margin: 0 0 26px; }
     .gbtn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%;
       padding: 12px; border: 1px solid var(--line-2); border-radius: var(--r-pill); background: var(--surface);
@@ -36,7 +36,7 @@
     .inbox { display: none; }
     .inbox.show { display: block; }
     .form-wrap.hide { display: none; }
-    .inbox .big { font-family: var(--display); font-weight: 600; font-size: 21px; margin: 0 0 8px; }
+    .inbox .big { font-family: var(--display); font-weight: 800; font-size: 21px; letter-spacing: -.02em; margin: 0 0 8px; }
     .inbox p { color: var(--muted); font-size: 14.5px; margin: 0; }
     .inbox b { color: var(--ink); }
   </style>
