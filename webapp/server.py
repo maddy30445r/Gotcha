@@ -30,14 +30,17 @@ import wave
 import queue
 import threading
 
-from fastapi import FastAPI, HTTPException, Header, Depends, UploadFile, File, Form, Body
-from fastapi.responses import FileResponse
+from urllib.parse import quote
+
+from fastapi import FastAPI, HTTPException, Header, Depends, UploadFile, File, Form, Body, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import markdown as md
 
 import pipeline
 from mixdown import mix_tracks
+from . import auth as authmod
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -94,18 +97,38 @@ def _load_users():
 
 USERS = _load_users()
 
+# Self-serve account store (Milestone 2): create the SQLite DB and, on first run,
+# import any legacy users.json so existing minted testers keep working (their old
+# token becomes their api_token). users.json stays as an auth fallback.
+authmod.init_db()
+_migrated = authmod.migrate_users_json(USERS_FILE)
+if _migrated:
+    print(f"[auth] migrated {_migrated} user(s) from users.json into gotcha.db")
+
 
 def _user_for_token(token):
+    """Resolve a Bearer/API token to a user record — the self-serve DB first, then
+    the legacy users.json / GOTCHA_DEV_TOKEN map."""
+    rec = authmod.user_by_api_token(token)
+    if rec:
+        return rec
     user = USERS.get(token)
     if not user:
         raise HTTPException(403, "Invalid token")
     return user
 
 
-def auth(authorization: str = Header(None)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(401, "Missing or malformed Authorization header")
-    return _user_for_token(authorization.split(" ", 1)[1].strip())
+def auth(request: Request, authorization: str = Header(None)):
+    """A request is authenticated by EITHER a Bearer api_token (desktop / CLI) OR a
+    signed session cookie (web). Both resolve to the same user-record shape."""
+    if authorization and authorization.startswith("Bearer "):
+        return _user_for_token(authorization.split(" ", 1)[1].strip())
+    uid = authmod.read_session(request.cookies.get(authmod.SESSION_COOKIE))
+    if uid:
+        rec = authmod.user_by_id(uid)
+        if rec:
+            return rec
+    raise HTTPException(401, "Not signed in")
 
 
 def _uid(user):
@@ -387,6 +410,116 @@ def app_page():
     return FileResponse(os.path.join(STATIC_DIR, "app.html"))
 
 
+@app.get("/login")
+def login_page():
+    """Self-serve sign-in / sign-up page (Google + email magic-link)."""
+    return FileResponse(os.path.join(STATIC_DIR, "login.html"))
+
+
+@app.get("/api/auth/me")
+def auth_me(user=Depends(auth)):
+    """Who am I — used by the web app on boot to decide app-vs-login."""
+    return {
+        "user_id": user["user_id"],
+        "email": user.get("email"),
+        "display_name": user.get("display_name"),
+        "used_min": round(_used_min(user), 1),
+        "cap_min": _cap_min(user),
+    }
+
+
+@app.post("/api/auth/logout")
+def auth_logout():
+    """Clear the web session cookie. (Bearer API tokens are unaffected.)"""
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(authmod.SESSION_COOKIE, path="/")
+    return resp
+
+
+def _base_url(request):
+    return authmod.PUBLIC_URL or str(request.base_url).rstrip("/")
+
+
+def _set_session(resp, user_id):
+    resp.set_cookie(
+        authmod.SESSION_COOKIE, authmod.make_session(user_id),
+        max_age=authmod.SESSION_TTL, httponly=True, samesite="lax",
+        secure=authmod.PUBLIC_URL.startswith("https://"), path="/")
+
+
+def _finish_login(request, email, client, display_name=None):
+    """Find-or-create the account (open signup → free cap), then hand the client
+    its credential: the desktop app gets the api_token via the gotcha:// deep link;
+    the web gets a session cookie + a redirect into the app."""
+    user, _created = authmod.find_or_create_user(email, display_name=display_name)
+    if client == "desktop":
+        tok = authmod.api_token_for(user["user_id"])
+        link = (f"gotcha://connect?server={quote(_base_url(request))}"
+                f"&token={quote(tok)}")
+        return RedirectResponse(link, status_code=303)
+    resp = RedirectResponse("/app", status_code=303)
+    _set_session(resp, user["user_id"])
+    return resp
+
+
+@app.post("/api/auth/email/start")
+def auth_email_start(request: Request, email: str = Body(..., embed=True),
+                     client: str = Body("web", embed=True)):
+    """Begin email (magic-link) sign-in/up: mint a one-time link and email it."""
+    email = (email or "").strip().lower()
+    if len(email) > 200 or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        raise HTTPException(422, "Enter a valid email")
+    token = authmod.create_magic_link(email)
+    client = "desktop" if client == "desktop" else "web"
+    link = f"{_base_url(request)}/api/auth/email/verify?token={token}&client={client}"
+    authmod.send_email(
+        email, "Your Gotcha sign-in link",
+        f'<p>Click to sign in to Gotcha:</p>'
+        f'<p><a href="{link}">Sign in to Gotcha</a></p>'
+        f"<p>This link expires in 15 minutes. If you didn't request it, ignore this email.</p>")
+    return {"ok": True}
+
+
+@app.get("/api/auth/email/verify")
+def auth_email_verify(request: Request, token: str, client: str = "web"):
+    """Consume a magic link → sign the user in (web cookie or desktop deep link)."""
+    email = authmod.consume_magic_link(token)
+    if not email:
+        return RedirectResponse("/login?error=expired", status_code=303)
+    return _finish_login(request, email, "desktop" if client == "desktop" else "web")
+
+
+def _google_redirect_uri(request):
+    """Must match a redirect URI registered on the Google OAuth client exactly."""
+    return _base_url(request) + "/api/auth/google/callback"
+
+
+@app.get("/api/auth/google/start")
+def auth_google_start(request: Request, client: str = "web"):
+    """Kick off Google sign-in: redirect to the consent screen."""
+    if not authmod.google_enabled():
+        return RedirectResponse("/login?error=google_off", status_code=303)
+    client = "desktop" if client == "desktop" else "web"
+    state = authmod.make_oauth_state(client)
+    url = authmod.google_auth_url(_google_redirect_uri(request), state)
+    return RedirectResponse(url, status_code=303)
+
+
+@app.get("/api/auth/google/callback")
+def auth_google_callback(request: Request, code: str = None,
+                         state: str = None, error: str = None):
+    """Google redirects back here with a code → exchange it, sign the user in."""
+    if error or not code:
+        return RedirectResponse("/login?error=google", status_code=303)
+    client = authmod.read_oauth_state(state)
+    if client is None:
+        return RedirectResponse("/login?error=google", status_code=303)
+    email, name = authmod.google_exchange(code, _google_redirect_uri(request))
+    if not email:
+        return RedirectResponse("/login?error=google", status_code=303)
+    return _finish_login(request, email, client, display_name=name)
+
+
 # ---------------------------------------------------------------------------
 # Meetings / report (all per-user, all behind auth)
 # ---------------------------------------------------------------------------
@@ -481,15 +614,20 @@ def job_status(base: str, user=Depends(auth)):
 
 
 @app.get("/api/audio/{base}/{track}")
-def get_audio(base: str, track: str, token: str = None, authorization: str = Header(None)):
+def get_audio(base: str, track: str, request: Request,
+              token: str = None, authorization: str = Header(None)):
     # An <audio> element can't send an Authorization header, so this endpoint also
-    # accepts the token as a query param (?token=...). Header wins when present.
+    # accepts the token as a query param (desktop) OR the session cookie (web).
+    # Header wins, then explicit token, then cookie.
     if authorization and authorization.startswith("Bearer "):
         user = _user_for_token(authorization.split(" ", 1)[1].strip())
     elif token:
         user = _user_for_token(token)
     else:
-        raise HTTPException(401, "Missing token")
+        uid = authmod.read_session(request.cookies.get(authmod.SESSION_COOKIE))
+        user = authmod.user_by_id(uid) if uid else None
+        if not user:
+            raise HTTPException(401, "Missing token")
     base = _safe_base(base)
     if track == "mix":
         try:

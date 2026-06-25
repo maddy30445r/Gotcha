@@ -4,8 +4,12 @@
 const TAURI = !!window.__TAURI__;
 const invoke = TAURI ? window.__TAURI__.core.invoke : null;
 const DEFAULT_SERVER = "http://localhost:8000";
-const serverUrl = () => (localStorage.getItem("gotcha_server") || DEFAULT_SERVER).replace(/\/+$/, "");
-const authToken = () => localStorage.getItem("gotcha_token") || "";
+// Web: the app is served BY the backend, so it's same-origin — use relative paths
+// and authenticate by the session cookie. Desktop: a different origin (tauri://),
+// so it targets the stored server URL and authenticates by bearer token.
+const serverUrl = () =>
+  TAURI ? (localStorage.getItem("gotcha_server") || DEFAULT_SERVER).replace(/\/+$/, "") : "";
+const authToken = () => (TAURI ? localStorage.getItem("gotcha_token") || "" : "");
 
 /* ── state ───────────────────────────────────────────────────────────── */
 let current = null;       // { base, transcript, tracks, your_name }
@@ -47,11 +51,14 @@ async function api(path, opts) {
   const headers = Object.assign({}, opts.headers);
   const tok = authToken();
   if (tok) headers["Authorization"] = "Bearer " + tok;
+  // Web is same-origin, so the session cookie is sent by default (no
+  // credentials:'include' — that would trip the wildcard-CORS rule on the
+  // cross-origin desktop webview, which authenticates by bearer header anyway).
   const res = await fetch(serverUrl() + path, Object.assign({}, opts, { headers }));
   if (!res.ok) {
     let msg = res.statusText;
     try { msg = (await res.json()).detail || msg; } catch (_) {}
-    throw new Error(msg);
+    const err = new Error(msg); err.status = res.status; throw err;
   }
   return res.status === 204 ? null : res.json();
 }
@@ -380,8 +387,11 @@ function resolveTrack(mode) {
 }
 
 function trackSrc(track) {
-  return `${serverUrl()}/api/audio/${encodeURIComponent(current.base)}/${track}`
-    + `?token=${encodeURIComponent(authToken())}`;
+  const url = `${serverUrl()}/api/audio/${encodeURIComponent(current.base)}/${track}`;
+  // Desktop sends the token in the query (the <audio> element can't set a header);
+  // web is same-origin so the session cookie rides along automatically.
+  const tok = authToken();
+  return tok ? url + `?token=${encodeURIComponent(tok)}` : url;
 }
 
 let pendingMeta = null;  // a not-yet-fired loadedmetadata seek handler from a prior load
@@ -593,8 +603,46 @@ function saveSettings(ev) {
   dlg.close ? dlg.close() : (dlg.hidden = true);
   loadMeetings(true);
 }
-$("#settings-btn").onclick = openSettings;
 $("#settings-form").addEventListener("submit", saveSettings);
+
+// Desktop: open the hosted login in the system browser. The server's post-login
+// redirect (gotcha://connect?server=&token=) binds us via the deep-link handler.
+const signinBtn = $("#signin-btn");
+if (signinBtn) signinBtn.onclick = async () => {
+  const server = ($("#set-server").value.trim() || DEFAULT_SERVER).replace(/\/+$/, "");
+  localStorage.setItem("gotcha_server", server);   // so the deep-link return matches
+  if (!invoke) { toast("Sign-in needs the Gotcha desktop app.", "err"); return; }
+  try { await invoke("open_signin", { serverUrl: server }); }
+  catch (e) { toast("Couldn't open the browser: " + e, "err"); return; }
+  toast("Finish signing in in your browser.", "ok");
+};
+
+/* ── account menu (web: cookie session) ──────────────────────────────── */
+let currentUser = null;
+async function openAccount() {
+  try { currentUser = await api("/api/auth/me"); } catch (_) {}
+  const u = currentUser || {};
+  const emailEl = $("#acct-email");
+  if (emailEl) emailEl.textContent = u.email || u.display_name || "Signed in";
+  const usageEl = $("#acct-usage");
+  if (usageEl) {
+    const used = u.used_min != null ? u.used_min : 0;
+    const cap = u.cap_min != null ? u.cap_min : 0;
+    usageEl.textContent = cap ? `${used} of ${cap} min used` : `${used} min used`;
+  }
+  const dlg = $("#account");
+  if (dlg) dlg.showModal ? dlg.showModal() : (dlg.hidden = false);
+}
+async function signOut() {
+  try { await api("/api/auth/logout", { method: "POST" }); } catch (_) {}
+  location.replace("/login");
+}
+// Desktop keeps the server/token connect panel; web gets the account menu.
+$("#settings-btn").onclick = () => (TAURI ? openSettings() : openAccount());
+const acctClose = $("#acct-close");
+if (acctClose) acctClose.onclick = () => { const d = $("#account"); d.close ? d.close() : (d.hidden = true); };
+const acctSignout = $("#acct-signout");
+if (acctSignout) acctSignout.onclick = signOut;
 
 /* ── zero-paste onboarding: gotcha://connect?server=&token= ──────────── */
 function applyConnectUrl(raw) {
@@ -657,6 +705,16 @@ if (searchEl) searchEl.addEventListener("input", renderMeetingList);
 
 /* ── boot ────────────────────────────────────────────────────────────── */
 revealIn(document);
-if (!authToken()) openSettings();   // first run: ask for backend URL + token
-loadMeetings(true);             // populate sidebar + auto-open newest into the workspace
-setInterval(() => loadMeetings(false), 8000);
+async function boot() {
+  // Establish identity first. Web: the session cookie decides app-vs-login.
+  // Desktop: the bearer token (set via the gotcha:// deep link or settings).
+  try {
+    currentUser = await api("/api/auth/me");
+  } catch (e) {
+    if (!TAURI) { location.replace("/login"); return; }  // web: sign in to continue
+    if (!authToken()) { openSettings(); }                // desktop: not bound yet
+  }
+  loadMeetings(true);   // populate sidebar + auto-open newest into the workspace
+  setInterval(() => loadMeetings(false), 8000);
+}
+boot();

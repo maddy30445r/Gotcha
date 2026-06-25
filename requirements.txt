@@ -13,3 +13,4 @@ fastapi
 uvicorn
 markdown
 python-multipart   # multipart file uploads (POST /api/upload)
+httpx              # auth.py: Resend transactional email + Google OAuth exchange

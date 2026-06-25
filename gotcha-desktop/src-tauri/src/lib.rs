@@ -271,6 +271,20 @@ fn open_privacy_pane(which: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Open the hosted sign-in page in the system browser. After the user signs in
+/// (Google / email link), the server redirects to gotcha://connect?server=…&token=…,
+/// which the deep-link handler below binds — so this replaces pasting a token.
+#[tauri::command]
+fn open_signin(server_url: String) -> Result<(), String> {
+    let base = server_url.trim_end_matches('/');
+    let url = format!("{base}/login?client=desktop");
+    std::process::Command::new("open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 /// Relaunch the app — needed after granting Screen Recording (the grant only
 /// takes effect on relaunch). `restart()` diverges (replaces the process).
 #[tauri::command]
@@ -300,6 +314,7 @@ pub fn run() {
             stop_recording,
             upload_recording,
             open_privacy_pane,
+            open_signin,
             relaunch
         ])
         .run(tauri::generate_context!())

@@ -324,6 +324,13 @@ body.app-shell {
 .settings-form { padding: var(--s6); }
 .settings-title { font-family: var(--display); font-weight: 600; font-size: 22px; margin: 0 0 8px; }
 .settings-hint { color: var(--muted); font-size: 14px; margin: 0 0 var(--s5); }
+.acct-email { font-size: 15px; font-weight: 600; color: var(--ink); margin: 0 0 4px; }
+.acct-usage { color: var(--muted); font-size: 13.5px; margin: 0 0 var(--s5); }
+.signin-btn { width: 100%; justify-content: center; margin-bottom: var(--s4); }
+.settings-adv { margin-bottom: var(--s4); }
+.settings-adv summary { cursor: pointer; font-size: 12.5px; color: var(--faint); list-style: none; }
+.settings-adv summary::-webkit-details-marker { display: none; }
+.settings-adv[open] summary { margin-bottom: var(--s3); }
 .settings-field { display: block; margin-bottom: var(--s4); }
 .settings-field span { display: block; font-size: 12.5px; font-weight: 600; color: var(--faint); margin-bottom: 6px; }
 .settings-field input, .settings-field textarea {

@@ -5,6 +5,8 @@ pipeline_output/
 recordings/
 usage/
 users.json
+gotcha.db
+waitlist.jsonl
 __pycache__/
 mac_recorder/.build/
 gotcha-desktop/src-tauri/binaries/

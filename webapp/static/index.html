@@ -141,8 +141,8 @@
       <span class="spacer"></span>
       <a class="navlink" href="#how">How it works</a>
       <a class="navlink" href="#privacy">Privacy</a>
-      <a class="navlink" href="/app">Open app</a>
-      <a class="cta cta--sm" href="#get">Request access</a>
+      <a class="navlink" href="/login">Sign in</a>
+      <a class="cta cta--sm" href="/login">Get started</a>
     </nav>
 
     <!-- hero -->
@@ -151,7 +151,7 @@
       <h1>Know exactly what your lead <em>meant</em> — and what you need to do.</h1>
       <p class="sub">An interpreter for Hinglish dev-team meetings. <b>Not another note-taker.</b></p>
       <div class="hero-cta">
-        <a class="cta" href="#get">Request beta access</a>
+        <a class="cta" href="/login">Get started — it's free</a>
         <span class="hero-note">Mac app · free during beta · no meeting bot</span>
       </div>
 
@@ -301,13 +301,11 @@
     <section class="band" id="get">
       <div class="final">
         <h2 class="sec">Stop guessing what you missed.</h2>
-        <p>Gotcha is in private beta. Leave your email and we'll send you a personal invite to the Mac app.</p>
-        <form class="wl" id="waitlist" autocomplete="off">
-          <input type="text" class="hp" name="website" tabindex="-1" aria-hidden="true" />
-          <input type="email" id="wl-email" placeholder="you@company.com" required />
-          <button class="cta" type="submit">Request access</button>
-        </form>
-        <div class="wl-msg" id="wl-msg" role="status"></div>
+        <p>Free during beta. Sign in with Google or an email link, then download the Mac app — no invite to wait for.</p>
+        <div class="hero-cta">
+          <a class="cta" href="/login">Get started — it's free</a>
+          <span class="hero-note">No passwords · no meeting bot · your audio stays yours</span>
+        </div>
       </div>
     </section>
 
@@ -315,38 +313,10 @@
     <footer class="lp-foot">
       <span>© Gotcha · the meeting decoder</span>
       <span class="spacer"></span>
-      <a href="/app">Open app</a>
+      <a href="/login">Sign in</a>
       <a href="#privacy">Privacy</a>
     </footer>
 
   </div>
-
-  <script>
-    // Same-origin waitlist post to the backend. Honeypot 'website' must stay blank.
-    var form = document.getElementById("waitlist");
-    var msg = document.getElementById("wl-msg");
-    form.addEventListener("submit", async function (e) {
-      e.preventDefault();
-      msg.className = "wl-msg"; msg.textContent = "";
-      var email = document.getElementById("wl-email").value.trim();
-      var website = form.querySelector('input[name=website]').value;
-      try {
-        var res = await fetch("/api/request-access", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: email, website: website }),
-        });
-        if (!res.ok) {
-          var d = {}; try { d = await res.json(); } catch (_) {}
-          throw new Error(d.detail || "Something went wrong — try again.");
-        }
-        msg.className = "wl-msg ok";
-        msg.textContent = "You're on the list — we'll email your invite soon.";
-        form.reset();
-      } catch (err) {
-        msg.className = "wl-msg err";
-        msg.textContent = err.message;
-      }
-    });
-  </script>
 </body>
 </html>

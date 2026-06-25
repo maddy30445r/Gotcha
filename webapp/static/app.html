@@ -57,21 +57,38 @@
     <audio id="player" controls preload="none"></audio>
   </footer>
 
+  <!-- account: who's signed in + usage + sign out (web, cookie session) -->
+  <dialog id="account" class="settings">
+    <div class="settings-form">
+      <h3 class="settings-title">Your account</h3>
+      <p class="acct-email" id="acct-email">—</p>
+      <p class="acct-usage" id="acct-usage"></p>
+      <div class="settings-actions">
+        <button type="button" id="acct-signout" class="ghost-btn">Sign out</button>
+        <button type="button" id="acct-close" class="cta cta--sm">Done</button>
+      </div>
+    </div>
+  </dialog>
+
   <!-- settings: backend URL + access token -->
   <dialog id="settings" class="settings">
     <form id="settings-form" method="dialog" class="settings-form">
-      <h3 class="settings-title">Settings</h3>
-      <p class="settings-hint">Connect Gotcha to your account. Your invite link fills these in
-        automatically — or paste them from your admin.</p>
+      <h3 class="settings-title">Connect to Gotcha</h3>
+      <p class="settings-hint">Enter your Gotcha server, then sign in — the browser opens,
+        you sign in with Google or an email link, and Gotcha connects itself.</p>
       <div id="conn-status" class="conn-status" hidden></div>
       <label class="settings-field">
         <span>Server URL</span>
         <input id="set-server" type="url" placeholder="https://your-gotcha-server" />
       </label>
-      <label class="settings-field">
-        <span>Access token</span>
-        <input id="set-token" type="password" placeholder="paste your token" autocomplete="off" />
-      </label>
+      <button type="button" id="signin-btn" class="cta cta--sm signin-btn">Sign in in browser</button>
+      <details class="settings-adv">
+        <summary>Have a token? Enter it manually</summary>
+        <label class="settings-field">
+          <span>Access token</span>
+          <input id="set-token" type="password" placeholder="paste your token" autocomplete="off" />
+        </label>
+      </details>
       <div class="settings-actions">
         <button type="button" id="copy-link" class="ghost-btn">Copy connect link</button>
         <button type="submit" class="cta cta--sm">Save</button>

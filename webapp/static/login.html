@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in · Gotcha</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body { display: grid; place-items: center; min-height: 100vh; height: auto;
+      background-image: radial-gradient(680px 320px at 50% -6%, #F1ECFB 0%, transparent 70%); }
+    .card { width: 100%; max-width: 400px; margin: 24px; background: var(--surface);
+      border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow);
+      padding: 38px 34px; text-align: center; }
+    .card .brand { justify-content: center; padding: 0; border: none; margin-bottom: 22px; }
+    h1 { font-family: var(--display); font-weight: 600; font-size: 27px; letter-spacing: -.01em; margin: 0 0 6px; }
+    .lede { color: var(--muted); font-size: 14.5px; margin: 0 0 26px; }
+    .gbtn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%;
+      padding: 12px; border: 1px solid var(--line-2); border-radius: var(--r-pill); background: var(--surface);
+      color: var(--ink); font-family: var(--body); font-weight: 600; font-size: 14.5px; cursor: pointer;
+      text-decoration: none; transition: var(--t); }
+    .gbtn:hover { border-color: var(--faint); background: var(--surface-2); }
+    .gbtn svg { width: 18px; height: 18px; }
+    .divider { display: flex; align-items: center; gap: 12px; color: var(--faint); font-size: 12.5px; margin: 20px 0; }
+    .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+    form { display: flex; flex-direction: column; gap: 10px; }
+    input[type=email] { font-family: var(--body); font-size: 15px; color: var(--ink); background: var(--surface-2);
+      border: 1px solid var(--line); border-radius: var(--r-sm); padding: 12px 14px; outline: none; transition: var(--t); }
+    input[type=email]:focus { border-color: var(--accent-line); background: var(--surface); }
+    .submit { width: 100%; justify-content: center; }
+    .msg { font-size: 13.5px; margin-top: 14px; min-height: 18px; }
+    .msg.err { color: var(--rose); }
+    .fine { color: var(--faint); font-size: 12.5px; margin-top: 22px; }
+    .inbox { display: none; }
+    .inbox.show { display: block; }
+    .form-wrap.hide { display: none; }
+    .inbox .big { font-family: var(--display); font-weight: 600; font-size: 21px; margin: 0 0 8px; }
+    .inbox p { color: var(--muted); font-size: 14.5px; margin: 0; }
+    .inbox b { color: var(--ink); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <a class="brand" href="/"><span class="brand-mark">G</span><span class="brand-word">Gotcha</span></a>
+
+    <div class="form-wrap" id="form-wrap">
+      <h1>Sign in to Gotcha</h1>
+      <p class="lede">New here? Signing in creates your account.</p>
+
+      <a class="gbtn" id="google-btn" href="#">
+        <svg viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.4 5.4 2.5 13.3l7.8 6.1C12.2 13.3 17.6 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.5 3-2.2 5.5-4.7 7.2l7.3 5.7c4.3-4 6.2-9.9 6.2-17.4z"/><path fill="#FBBC05" d="M10.3 28.6c-.5-1.5-.8-3-.8-4.6s.3-3.1.8-4.6l-7.8-6.1C.9 16.4 0 20.1 0 24s.9 7.6 2.5 10.7l7.8-6.1z"/><path fill="#34A853" d="M24 48c6.2 0 11.5-2 15.3-5.5l-7.3-5.7c-2 1.4-4.7 2.3-8 2.3-6.4 0-11.8-3.8-13.7-9.4l-7.8 6.1C6.4 42.6 14.6 48 24 48z"/></svg>
+        Continue with Google
+      </a>
+
+      <div class="divider">or</div>
+
+      <form id="email-form">
+        <input type="email" id="email" placeholder="you@company.com" required autocomplete="email" />
+        <button class="cta submit" type="submit">Email me a sign-in link</button>
+      </form>
+      <div class="msg" id="msg" role="status"></div>
+      <p class="fine">No passwords. We email you a one-time sign-in link.</p>
+    </div>
+
+    <div class="inbox" id="inbox">
+      <p class="big">Check your inbox ✉️</p>
+      <p>We sent a sign-in link to <b id="sent-to"></b>. Open it on this device to continue.</p>
+    </div>
+  </div>
+
+  <script>
+    var params = new URLSearchParams(location.search);
+    var client = params.get("client") === "desktop" ? "desktop" : "web";
+    document.getElementById("google-btn").href = "/api/auth/google/start?client=" + client;
+
+    var ERRORS = {
+      expired: "That link expired or was already used — request a new one.",
+      google: "Google sign-in didn't complete — try again or use an email link.",
+      google_off: "Google sign-in isn't set up yet — use an email link below.",
+    };
+    var err = params.get("error");
+    if (err && ERRORS[err]) {
+      var m = document.getElementById("msg");
+      m.className = "msg err";
+      m.textContent = ERRORS[err];
+    }
+
+    document.getElementById("email-form").addEventListener("submit", async function (e) {
+      e.preventDefault();
+      var msg = document.getElementById("msg");
+      msg.className = "msg"; msg.textContent = "Sending…";
+      var email = document.getElementById("email").value.trim();
+      try {
+        var res = await fetch("/api/auth/email/start", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: email, client: client }),
+        });
+        if (!res.ok) {
+          var d = {}; try { d = await res.json(); } catch (_) {}
+          throw new Error(d.detail || "Something went wrong — try again.");
+        }
+        document.getElementById("sent-to").textContent = email;
+        document.getElementById("form-wrap").classList.add("hide");
+        document.getElementById("inbox").classList.add("show");
+      } catch (err) {
+        msg.className = "msg err"; msg.textContent = err.message;
+      }
+    });
+  </script>
+</body>
+</html>
