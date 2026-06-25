@@ -497,7 +497,11 @@ def _finish_login(request, email, client, display_name=None):
         tok = authmod.api_token_for(user["user_id"])
         link = (f"gotcha://connect?server={quote(_base_url(request))}"
                 f"&token={quote(tok)}")
-        return HTMLResponse(_desktop_connect_page(link))
+        # One login serves both surfaces: hand the app its deep-link token AND sign
+        # this browser into the web, so signing in is never required twice.
+        resp = HTMLResponse(_desktop_connect_page(link))
+        _set_session(resp, user["user_id"])
+        return resp
     resp = RedirectResponse("/app", status_code=303)
     _set_session(resp, user["user_id"])
     return resp

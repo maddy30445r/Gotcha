@@ -781,6 +781,11 @@ async function signOut() {
 const webSignout = $("#acct-signout"); if (webSignout) webSignout.onclick = signOut;
 const dSignout = $("#d-acct-signout"); if (dSignout) dSignout.onclick = signOut;
 
+// Web only: hand the just-installed desktop app a session. Goes through the same
+// explicit account chooser; the callback fires the gotcha:// deep link.
+const connectApp = $("#connect-app");
+if (connectApp) connectApp.onclick = () => window.open("/login?client=desktop", "_blank");
+
 // Desktop keeps the server/token connect dialog; web gets the popover.
 $("#settings-btn").onclick = () => (TAURI ? openSettings() : toggleSettingsPop());
 
