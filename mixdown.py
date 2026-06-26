@@ -8,9 +8,12 @@ But for *listening back* you want to hear the actual moment — both voices toge
 This module sums the two tracks into `{base}.mix.wav` purely for playback; it does
 NOT touch the transcription path, so the two-track separation principle is preserved.
 
-Both tracks are mono / 48kHz / 16-bit PCM, recorded simultaneously and within a few
-ms in length, so a sample-aligned sum is correct. Stdlib only (`wave` + `array`) —
-deliberately NOT `audioop`, which is deprecated and removed in Python 3.13.
+Both tracks are mono / 16-bit PCM recorded simultaneously, but they can differ in
+sample rate: the system track is 48kHz while the mic (macOS Voice Processing) is
+device-dependent and often 24kHz. We resample the mic up to the system rate before
+summing so both line up in time — otherwise the mic plays back fast / high-pitched.
+Stdlib only (`wave` + `array`) — deliberately NOT `audioop`, which is deprecated and
+removed in Python 3.13.
 """
 
 import wave
@@ -24,6 +27,25 @@ def _read_int16(path):
     samples = array("h")          # signed 16-bit
     samples.frombytes(frames)
     return samples, params
+
+
+def _resample_int16(samples, src_rate, dst_rate):
+    """Linear-interpolation resample of a mono int16 buffer. Adequate for voice
+    playback and dependency-free; the mix is cached so this runs once per meeting."""
+    if src_rate == dst_rate or not len(samples):
+        return samples
+    n_out = int(len(samples) * dst_rate / src_rate)
+    out = array("h", bytes(2 * n_out))
+    ratio = src_rate / dst_rate
+    last = len(samples) - 1
+    for i in range(n_out):
+        pos = i * ratio
+        i0 = int(pos)
+        frac = pos - i0
+        s0 = samples[i0]
+        s1 = samples[i0 + 1] if i0 < last else s0
+        out[i] = int(s0 + (s1 - s0) * frac)
+    return out
 
 
 def mix_tracks(system_path, mic_path, out_path):
@@ -40,6 +62,9 @@ def mix_tracks(system_path, mic_path, out_path):
         raise ValueError("mix_tracks expects 16-bit PCM tracks")
     if ch_a != 1 or ch_b != 1:
         raise ValueError("mix_tracks expects mono tracks")
+
+    # Bring the mic up to the system rate so the sample-aligned sum is time-correct.
+    b = _resample_int16(b, rate_b, rate_a)
 
     n = max(len(a), len(b))
     out = array("h", bytes(2 * n))   # zero-filled (silence) of the longer length

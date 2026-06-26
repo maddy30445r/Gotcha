@@ -301,6 +301,9 @@ body.app-shell { height: 100vh; display: flex; flex-direction: column; overflow:
 .summary-prose { font-size: 18px; line-height: 1.65; color: #3a342b; margin: 18px 0 0; }
 .summary-prose p { margin: 0 0 14px; }
 .summary-prose p:last-child { margin-bottom: 0; }
+.summary-list { margin: 0; padding-left: 22px; }
+.summary-list li { margin: 0 0 10px; }
+.summary-list li:last-child { margin-bottom: 0; }
 .summary-prose code, .dc-meant code, .act-how-body code {
   background: var(--sidebar); border-radius: 5px; padding: 1px 6px; font-size: .9em; font-family: var(--mono);
 }

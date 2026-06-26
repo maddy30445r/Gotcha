@@ -244,8 +244,13 @@ they personally now have to do.
 {roles_line}
 
 ## Output — exactly these four sections
+Write each of the four section headers EXACTLY as a markdown H3 on its own line —
+`### 1. …`, `### 2. …`, `### 3. …`, `### 4. …`. Do NOT use bold (`**…**`) for the
+section headers.
+
 ### 1. Meeting summary & decisions
-3–6 plain sentences. Lead with what matters most to {YOUR_NAME}.
+3–6 plain sentences (more if the meeting genuinely covered more). Lead with what
+matters most to {YOUR_NAME}.
 
 ### 2. What the lead really meant
 Only for indirect/vague/implied lines. Quote briefly (<15 words) then give the
@@ -289,6 +294,10 @@ Do not manufacture doubts.
 ## Rules
 - Every action item, every "lead meant" claim, and every open question MUST cite
   timestamp + short quote. **How:** steps must come straight from the cited entry.
+- Be exhaustive. Capture every decision, instruction, deadline, preference, constraint,
+  requirement, and meaningful side-comment that affects {YOUR_NAME} — including small or
+  seemingly minor ones. Prefer listing a minor real item over dropping it. This does NOT
+  override the no-hallucination rule below: include only things actually said.
 - Do not hallucinate tasks/deadlines/meanings/steps. Under-reporting beats inventing.
 - Address {YOUR_NAME} directly, warm and concise.
 """.strip()

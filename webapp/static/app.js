@@ -94,7 +94,13 @@ function topBullets(body) {
 }
 
 function renderSummary(body) {
-  const paras = body.trim().split(/\n\s*\n/).map((p) => `<p>${mdInline(p.trim())}</p>`).join("");
+  const t = body.trim();
+  // Some models (e.g. gpt-oss) write the summary as a bullet list; older ones wrote prose.
+  if (/^\s*[*-]\s+/m.test(t)) {
+    const lis = topBullets(t).map((it) => `<li>${mdInline(stripStars(it.head))}</li>`).join("");
+    return `<div class="summary-prose"><ul class="summary-list">${lis}</ul></div>`;
+  }
+  const paras = t.split(/\n\s*\n/).map((p) => `<p>${mdInline(p.trim())}</p>`).join("");
   return `<div class="summary-prose">${paras}</div>`;
 }
 
@@ -190,7 +196,9 @@ function classify(title, idx) {
 }
 
 function renderReport(md) {
-  const norm = md.replace(/\r\n/g, "\n");
+  const norm = md.replace(/\r\n/g, "\n")
+    // Some models write "**1. Title**" instead of "### 1. Title" — normalize to H3.
+    .replace(/^\s*\*\*\s*(\d+\.\s+[^*\n]+?)\s*\*\*\s*$/gm, "### $1");
   const parts = norm.split(/^###\s+/m);
   const preamble = parts.shift().trim();
   let html = "";
