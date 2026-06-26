@@ -13,7 +13,7 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 use tauri_plugin_deep_link::DeepLinkExt;
 
 struct RecState {
@@ -434,11 +434,29 @@ fn loopback_signin_blocking(server_url: String) -> Result<String, String> {
     }
 }
 
+/// Bring the main window to the foreground. Called when an auth token arrives so the
+/// user is returned to the app instead of left staring at the browser. macOS:
+/// set_focus does makeKeyAndOrderFront + app activation.
+fn focus_main(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
 #[tauri::command]
-async fn start_loopback_signin(server_url: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || loopback_signin_blocking(server_url))
+async fn start_loopback_signin(
+    app: tauri::AppHandle,
+    server_url: String,
+) -> Result<String, String> {
+    let res = tauri::async_runtime::spawn_blocking(move || loopback_signin_blocking(server_url))
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    if res.is_ok() {
+        focus_main(&app); // raise the window now that we're signed in
+    }
+    res
 }
 
 /// Open an external http(s) link in the system browser. The webview is locked to
@@ -476,6 +494,7 @@ pub fn run() {
                 for url in event.urls() {
                     let _ = handle.emit("deep-link", url.to_string());
                 }
+                focus_main(&handle); // a gotcha:// link arrived → bring the app forward
             });
             Ok(())
         })

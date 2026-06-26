@@ -463,11 +463,11 @@ def _set_session(resp, user_id):
 
 
 def _desktop_connect_page(link):
-    """Interstitial for linking the desktop app. It fires the gotcha:// deep link, then
-    watches whether the app actually takes focus (a web page can't query the OS for an
-    installed URL handler). If it launches → 'You're signed in'; if nothing launches within
-    a couple seconds → 'Get the Mac app'. This avoids the misleading 'signed in' screen +
-    the browser's 'no application set to open the URL' error when the app isn't installed."""
+    """Interstitial for linking the desktop app. It fires the gotcha:// deep link and, once
+    the app takes focus (the tab is backgrounded), shows 'You're signed in'. Reaching this
+    page means the desktop client started the flow and the token was already delivered, so the
+    resting state is 'signed in' with a small get-the-app link — not a misleading 'install the
+    app' takeover. (The loopback flow serves its own success page and never hits this.)"""
     href = html.escape(link, quote=True)   # for the HTML attribute (& -> &amp;)
     js = json.dumps(link)                   # a safe JS string literal (keeps & intact)
     return f"""<!doctype html>
@@ -510,16 +510,9 @@ def _desktop_connect_page(link):
     <div class="mark">G</div>
     <h1>You're signed in</h1>
     <p>Gotcha is open on your Mac — you can close this tab and head back to the app.</p>
-  </div>
-
-  <div class="card" id="getapp" hidden>
-    <div class="mark">G</div>
-    <h1>Get Gotcha for Mac</h1>
-    <p>You're signed in, but the Gotcha app isn't installed on this device yet. Install it,
-      then connect again.</p>
-    <a class="btn" href="/download.html">Get the Mac app</a>
     <div class="alts">
-      <a href="{href}">Already installed? Open Gotcha</a>
+      <a href="{href}">Not back in the app? Open Gotcha</a>
+      <a href="/download.html">Don't have it yet? Get the Mac app</a>
     </div>
   </div>
 
@@ -527,21 +520,26 @@ def _desktop_connect_page(link):
   (function () {{
     var link = {js};
     function show(id) {{
-      ["launching", "success", "getapp"].forEach(function (k) {{
+      ["launching", "success"].forEach(function (k) {{
         document.getElementById(k).hidden = (k !== id);
       }});
     }}
-    // The app taking focus backgrounds this tab → it's installed. This always wins, so a
-    // slow launch (e.g. after Chrome's "Open Gotcha?" prompt) flips getapp → success.
+    // The app taking focus backgrounds this tab → confirms it opened. With the app's
+    // window-focus fix this normally fires on its own.
+    function onAway() {{ show("success"); }}
     document.addEventListener("visibilitychange", function () {{
-      if (document.visibilityState === "hidden") show("success");
+      if (document.visibilityState === "hidden") onAway();
     }});
+    window.addEventListener("blur", onAway);
+    window.addEventListener("pagehide", onAway);
     // Top-level navigation is the reliable launcher on macOS (an iframe gets blocked).
     setTimeout(function () {{ window.location.href = link; }}, 100);
-    // No app focus within the window → assume not installed → offer the download.
+    // Reaching this page means the desktop client started the flow and the token was
+    // already delivered — so rest on "signed in" (with a small get-the-app link) rather
+    // than a misleading "install the app" screen. ~3.5s allows Chrome's "Open Gotcha?" prompt.
     setTimeout(function () {{
-      if (document.visibilityState !== "hidden") show("getapp");
-    }}, 2000);
+      if (document.visibilityState !== "hidden") show("success");
+    }}, 3500);
   }})();
   </script>
 </body></html>"""
