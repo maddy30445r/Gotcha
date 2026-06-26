@@ -31,7 +31,7 @@ import wave
 import queue
 import threading
 
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, urlencode
 
 from fastapi import FastAPI, HTTPException, Header, Depends, UploadFile, File, Form, Body, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
@@ -547,20 +547,63 @@ def _desktop_connect_page(link):
 </body></html>"""
 
 
+# --- desktop linking: deep link (scheme) vs loopback (localhost) -------------
+# The desktop app can collect its token two ways: the gotcha:// deep link (works when
+# the app is closed, but relies on a registered URL scheme), or a loopback redirect —
+# the app starts a local 127.0.0.1 server and we redirect the browser there with the
+# token (RFC 8252; no scheme, no error dialog). The loopback target rides through the
+# OAuth round-trip in a short-lived signed cookie, so no OAuth-state surgery is needed.
+DESKTOP_REDIRECT_COOKIE = "gotcha_desktop_redirect"
+
+
+def _is_loopback(url):
+    """True only for an http://127.0.0.1|localhost|[::1][:port]/… URL — refuse anything
+    else so a token can never be redirected to an attacker-controlled host."""
+    try:
+        u = urlparse(url or "")
+        return u.scheme == "http" and (u.hostname in ("127.0.0.1", "localhost", "::1"))
+    except Exception:
+        return False
+
+
+def _deeplink(request, tok):
+    return (f"gotcha://connect?server={quote(_base_url(request))}&token={quote(tok)}")
+
+
+def _loopback_url(base, tok, state=None):
+    q = {"token": tok}
+    if state:
+        q["state"] = state
+    sep = "&" if urlparse(base).query else "?"
+    return base + sep + urlencode(q)
+
+
+def _set_desktop_redirect(resp, redirect, state):
+    resp.set_cookie(
+        DESKTOP_REDIRECT_COOKIE, authmod.sign_payload({"r": redirect, "s": state or ""}),
+        max_age=600, httponly=True, samesite="lax",
+        secure=authmod.PUBLIC_URL.startswith("https://"), path="/")
+
+
+def _clear_desktop_redirect(resp):
+    resp.delete_cookie(DESKTOP_REDIRECT_COOKIE, path="/")
+
+
 def _finish_login(request, email, client, display_name=None):
-    """Find-or-create the account (open signup → free cap), then hand the client
-    its credential: the desktop app gets the api_token via the gotcha:// deep link
-    (delivered through an interstitial page); the web gets a session cookie + a
-    redirect into the app."""
+    """Find-or-create the account (open signup → free cap), then hand the client its
+    credential: web gets a session cookie + redirect into the app; desktop gets its
+    api_token — via the loopback redirect if one was remembered, else the gotcha:// deep
+    link interstitial. Either way the browser is also signed into the web."""
     user, _created = authmod.find_or_create_user(email, display_name=display_name)
     if client == "desktop":
         tok = authmod.api_token_for(user["user_id"])
-        link = (f"gotcha://connect?server={quote(_base_url(request))}"
-                f"&token={quote(tok)}")
-        # One login serves both surfaces: hand the app its deep-link token AND sign
-        # this browser into the web, so signing in is never required twice.
-        resp = HTMLResponse(_desktop_connect_page(link))
-        _set_session(resp, user["user_id"])
+        lb = authmod.read_payload(request.cookies.get(DESKTOP_REDIRECT_COOKIE))
+        if lb and _is_loopback(lb.get("r", "")):
+            resp = RedirectResponse(_loopback_url(lb["r"], tok, lb.get("s")), status_code=303)
+            _clear_desktop_redirect(resp)
+        else:
+            resp = HTMLResponse(_desktop_connect_page(_deeplink(request, tok)))
+        _set_session(resp, user["user_id"])  # one login also signs this browser into web
         return resp
     resp = RedirectResponse("/app", status_code=303)
     _set_session(resp, user["user_id"])
@@ -568,19 +611,28 @@ def _finish_login(request, email, client, display_name=None):
 
 
 @app.get("/api/auth/desktop/connect")
-def desktop_connect(request: Request, force: int = 0):
-    """Link the desktop app. If this browser already has a web session (and we aren't
-    forcing a re-pick), connect that account straight away — no second login. Otherwise
-    send the user through the normal sign-in, which ends at the same interstitial."""
+def desktop_connect(request: Request, force: int = 0, redirect: str = None, state: str = None):
+    """Link the desktop app. `redirect` (a loopback URL) selects the loopback flow; absent,
+    we fall back to the gotcha:// deep-link interstitial. If this browser already has a web
+    session (and not forcing a re-pick), connect that account straight away — no second
+    login; otherwise send the user through sign-in, remembering the loopback target."""
+    loopback = redirect if _is_loopback(redirect) else None
     if not force:
         uid = authmod.read_session(request.cookies.get(authmod.SESSION_COOKIE))
         rec = authmod.user_by_id(uid) if uid else None
         if rec:
             tok = authmod.api_token_for(rec["user_id"])
-            link = (f"gotcha://connect?server={quote(_base_url(request))}"
-                    f"&token={quote(tok)}")
-            return HTMLResponse(_desktop_connect_page(link))
-    return RedirectResponse("/login?client=desktop", status_code=303)
+            if loopback:
+                resp = RedirectResponse(_loopback_url(loopback, tok, state), status_code=303)
+                _clear_desktop_redirect(resp)
+                return resp
+            return HTMLResponse(_desktop_connect_page(_deeplink(request, tok)))
+    resp = RedirectResponse("/login?client=desktop", status_code=303)
+    if loopback:
+        _set_desktop_redirect(resp, loopback, state)
+    else:
+        _clear_desktop_redirect(resp)  # don't let a stale loopback target linger
+    return resp
 
 
 @app.post("/api/auth/email/start")

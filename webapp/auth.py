@@ -283,6 +283,33 @@ def read_session(cookie):
         return None
 
 
+def sign_payload(data, ttl=600):
+    """Generic short-lived signed token (same HMAC scheme as the session cookie) for
+    carrying small state across a redirect round-trip — e.g. the desktop loopback target."""
+    body = dict(data)
+    body["exp"] = time.time() + ttl
+    raw = _b64e(json.dumps(body).encode())
+    sig = _b64e(hmac.new(SESSION_SECRET.encode(), raw.encode(), hashlib.sha256).digest())
+    return raw + "." + sig
+
+
+def read_payload(value):
+    """Return the dict from a valid, unexpired signed payload, else None."""
+    if not value or "." not in value:
+        return None
+    try:
+        raw, sig = value.split(".", 1)
+        expect = _b64e(hmac.new(SESSION_SECRET.encode(), raw.encode(), hashlib.sha256).digest())
+        if not hmac.compare_digest(sig, expect):
+            return None
+        data = json.loads(_b64d(raw))
+        if data.get("exp", 0) < time.time():
+            return None
+        return data
+    except Exception:
+        return None
+
+
 # --------------------------------------------------------------- Google OAuth
 # Server-side ("web application") OAuth: redirect to consent → exchange the code
 # for the user's email/name over httpx. No client-side JS SDK, so no JS origin.

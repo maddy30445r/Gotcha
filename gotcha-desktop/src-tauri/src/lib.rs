@@ -286,6 +286,161 @@ fn open_signin(server_url: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+// --- loopback sign-in (RFC 8252) -------------------------------------------
+// Robust alternative to the gotcha:// deep link: start a localhost server, open the
+// browser to the connect endpoint pointing back at it, and receive the token directly.
+// No URL scheme → no "no application set to open the URL" error and no stale-handler
+// ghosting. Blocks until the browser hits the callback or it times out.
+fn pct_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 3);
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
+fn hexval(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn pct_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'%' if i + 2 < bytes.len() => match (hexval(bytes[i + 1]), hexval(bytes[i + 2])) {
+                (Some(h), Some(l)) => {
+                    out.push(h * 16 + l);
+                    i += 3;
+                }
+                _ => {
+                    out.push(bytes[i]);
+                    i += 1;
+                }
+            },
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Pull token & state out of an HTTP request's first line `GET /callback?token=…&state=… …`.
+fn parse_callback(req: &str) -> (String, String) {
+    let path = req
+        .lines()
+        .next()
+        .unwrap_or("")
+        .split_whitespace()
+        .nth(1)
+        .unwrap_or("");
+    let query = path.splitn(2, '?').nth(1).unwrap_or("");
+    let (mut token, mut state) = (String::new(), String::new());
+    for pair in query.split('&') {
+        let mut it = pair.splitn(2, '=');
+        match (it.next().unwrap_or(""), it.next().unwrap_or("")) {
+            ("token", v) => token = pct_decode(v),
+            ("state", v) => state = pct_decode(v),
+            _ => {}
+        }
+    }
+    (token, state)
+}
+
+fn loopback_signin_blocking(server_url: String) -> Result<String, String> {
+    use std::io::Read;
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+
+    let base = server_url.trim_end_matches('/');
+    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+
+    // A nonce the backend echoes back, so we only accept our own callback.
+    let nonce = format!(
+        "{:x}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+    let redirect = format!("http://127.0.0.1:{port}/callback");
+    let url = format!(
+        "{base}/api/auth/desktop/connect?redirect={}&state={}",
+        pct_encode(&redirect),
+        pct_encode(&nonce)
+    );
+    std::process::Command::new("open")
+        .arg(&url)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+
+    // 5 min: enough for the slower email magic-link path, not just Google.
+    let deadline = Instant::now() + Duration::from_secs(300);
+    loop {
+        if Instant::now() >= deadline {
+            return Err("timed out waiting for sign-in".into());
+        }
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                let mut buf = [0u8; 4096];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]);
+                let (token, state) = parse_callback(&req);
+                let ok = !token.is_empty() && state == nonce;
+                let body = if ok {
+                    "<!doctype html><meta charset=utf-8><title>Gotcha</title>\
+                     <body style='font-family:-apple-system,sans-serif;text-align:center;padding:60px'>\
+                     <h2>You're signed in \u{2713}</h2><p>You can close this tab and return to Gotcha.</p>"
+                } else {
+                    "<!doctype html><meta charset=utf-8><title>Gotcha</title>\
+                     <body style='font-family:-apple-system,sans-serif;text-align:center;padding:60px'>\
+                     <h2>Sign-in failed</h2><p>Please try again from the Gotcha app.</p>"
+                };
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(resp.as_bytes());
+                let _ = stream.flush();
+                if ok {
+                    return Ok(token);
+                }
+                // non-matching request (e.g. favicon) — keep waiting
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(120));
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+}
+
+#[tauri::command]
+async fn start_loopback_signin(server_url: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || loopback_signin_blocking(server_url))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// Open an external http(s) link in the system browser. The webview is locked to
 /// the app shell (see app.js), so outbound links are routed here instead.
 #[tauri::command]
@@ -330,6 +485,7 @@ pub fn run() {
             upload_recording,
             open_privacy_pane,
             open_signin,
+            start_loopback_signin,
             open_external,
             relaunch
         ])

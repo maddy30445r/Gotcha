@@ -833,16 +833,28 @@ function closeSettings() {
 const setClose = $("#settings-close");
 if (setClose) setClose.onclick = closeSettings;
 
-// Open the hosted sign-in page in the system browser; the gotcha:// deep link
-// brings the token back (handled by applyConnectUrl).
+// Loopback sign-in: the app starts a localhost server, opens the browser to the
+// connect endpoint pointing back at it, and gets the token directly (RFC 8252) — no
+// gotcha:// scheme, so no "no application" error and no stale-handler ghosting.
 async function startBrowserSignin() {
   localStorage.setItem("gotcha_server", DEFAULT_SERVER);
   if (!invoke) { toast("Sign-in needs the Gotcha desktop app.", "err"); return; }
-  try { await invoke("open_signin", { serverUrl: DEFAULT_SERVER }); }
-  catch (e) { toast("Couldn't open the browser: " + e, "err"); return; }
   const status = $("#welcome-status");
-  if (status) status.textContent = "Finish signing in in your browser…";
-  toast("Finish signing in in your browser.", "ok");
+  if (status) status.textContent = "Opening your browser…";
+  try {
+    const token = await invoke("start_loopback_signin", { serverUrl: DEFAULT_SERVER });
+    if (!token) throw new Error("no token");
+    localStorage.setItem("gotcha_token", token);
+    if (status) status.textContent = "";
+    closeSettings();
+    hideWelcome();
+    fillAccount();
+    loadMeetings(true);
+    toast("Signed in", "ok");
+  } catch (e) {
+    if (status) status.textContent = "";
+    toast("Sign-in didn't complete — try again.", "err");
+  }
 }
 const welcomeSignin = $("#welcome-signin");
 if (welcomeSignin) welcomeSignin.onclick = startBrowserSignin;
