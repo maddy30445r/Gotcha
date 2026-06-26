@@ -202,6 +202,12 @@ body.app-shell { height: 100vh; display: flex; flex-direction: column; overflow:
 }
 .connect-app:hover { background: #f3ecdd; }
 .connect-app svg { color: var(--accent); flex: 0 0 auto; }
+.desktop-status {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px;
+  font-size: 13px; font-weight: 600; color: var(--green);
+}
+.desktop-status[hidden] { display: none; }
+.desktop-status svg { flex: 0 0 auto; }
 
 /* ── body: sidebar + main ─────────────────────────────────────────────── */
 .app-body { flex: 1; display: flex; min-height: 0; }

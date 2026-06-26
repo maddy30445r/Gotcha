@@ -109,9 +109,13 @@ if _migrated:
 
 def _user_for_token(token):
     """Resolve a Bearer/API token to a user record — the self-serve DB first, then
-    the legacy users.json / GOTCHA_DEV_TOKEN map."""
+    the legacy users.json / GOTCHA_DEV_TOKEN map. A Bearer token means the desktop app,
+    so stamp 'desktop seen' (throttled) — that's how the web app learns a Mac app is
+    connected."""
     rec = authmod.user_by_api_token(token)
     if rec:
+        if time.time() - (rec.get("desktop_seen_at") or 0) > 60:
+            authmod.touch_desktop_seen(rec["user_id"])
         return rec
     user = USERS.get(token)
     if not user:
@@ -417,6 +421,15 @@ def login_page():
     return FileResponse(os.path.join(STATIC_DIR, "login.html"))
 
 
+DESKTOP_WINDOW = 14 * 24 * 3600  # treat the Mac app as "connected" if seen within 14 days
+
+
+def _has_desktop(user):
+    """Has a desktop app been active for this account recently? Proxy for 'installed'."""
+    seen = user.get("desktop_seen_at") or 0
+    return bool(seen) and (time.time() - seen) < DESKTOP_WINDOW
+
+
 @app.get("/api/auth/me")
 def auth_me(user=Depends(auth)):
     """Who am I — used by the web app on boot to decide app-vs-login."""
@@ -426,6 +439,7 @@ def auth_me(user=Depends(auth)):
         "display_name": user.get("display_name"),
         "used_min": round(_used_min(user), 1),
         "cap_min": _cap_min(user),
+        "has_desktop": _has_desktop(user),
     }
 
 
@@ -449,16 +463,17 @@ def _set_session(resp, user_id):
 
 
 def _desktop_connect_page(link):
-    """An interstitial that fires the gotcha:// deep link (which logs the desktop
-    app in) and tells the user they can close the tab. A 303 straight to a custom
-    scheme leaves the browser hanging on a blank/loading page, so we land on real
-    HTML instead and trigger the link from JS, with a manual button as fallback."""
+    """Interstitial for linking the desktop app. It fires the gotcha:// deep link, then
+    watches whether the app actually takes focus (a web page can't query the OS for an
+    installed URL handler). If it launches → 'You're signed in'; if nothing launches within
+    a couple seconds → 'Get the Mac app'. This avoids the misleading 'signed in' screen +
+    the browser's 'no application set to open the URL' error when the app isn't installed."""
     href = html.escape(link, quote=True)   # for the HTML attribute (& -> &amp;)
     js = json.dumps(link)                   # a safe JS string literal (keeps & intact)
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Signed in · Gotcha</title>
+<title>Connecting · Gotcha</title>
 <style>
   body {{ margin:0; min-height:100vh; display:grid; place-items:center;
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
@@ -467,6 +482,7 @@ def _desktop_connect_page(link):
   .card {{ max-width:380px; margin:24px; padding:40px 34px; text-align:center;
     background:#fffdf8; border:1px solid #e7ddca; border-radius:20px;
     box-shadow:0 14px 36px -30px rgba(80,60,30,.5); }}
+  .card[hidden] {{ display:none; }}
   .mark {{ width:40px; height:40px; margin:0 auto 18px; border-radius:11px;
     background:#5d4ce6; color:#fff; font-weight:800; font-size:22px;
     display:grid; place-items:center; }}
@@ -480,17 +496,54 @@ def _desktop_connect_page(link):
   .alts a:hover {{ color:#5d4ce6; text-decoration:underline; }}
 </style></head>
 <body>
-  <div class="card">
+  <div class="card" id="launching">
     <div class="mark">G</div>
-    <h1>You're signed in</h1>
-    <p>Gotcha is opening on your Mac. You can close this tab and head back to the app.</p>
+    <h1>Opening Gotcha…</h1>
+    <p>If the Mac app is installed, it's opening now — you can head back to it.</p>
     <a class="btn" href="{href}">Open Gotcha</a>
     <div class="alts">
       <a href="/api/auth/desktop/connect?force=1">Not you? Use a different account</a>
-      <a href="/download.html">Don't have the app? Download it</a>
     </div>
   </div>
-  <script>setTimeout(function(){{ window.location.href = {js}; }}, 200);</script>
+
+  <div class="card" id="success" hidden>
+    <div class="mark">G</div>
+    <h1>You're signed in</h1>
+    <p>Gotcha is open on your Mac — you can close this tab and head back to the app.</p>
+  </div>
+
+  <div class="card" id="getapp" hidden>
+    <div class="mark">G</div>
+    <h1>Get Gotcha for Mac</h1>
+    <p>You're signed in, but the Gotcha app isn't installed on this device yet. Install it,
+      then connect again.</p>
+    <a class="btn" href="/download.html">Get the Mac app</a>
+    <div class="alts">
+      <a href="{href}">Already installed? Open Gotcha</a>
+    </div>
+  </div>
+
+  <script>
+  (function () {{
+    var link = {js};
+    function show(id) {{
+      ["launching", "success", "getapp"].forEach(function (k) {{
+        document.getElementById(k).hidden = (k !== id);
+      }});
+    }}
+    // The app taking focus backgrounds this tab → it's installed. This always wins, so a
+    // slow launch (e.g. after Chrome's "Open Gotcha?" prompt) flips getapp → success.
+    document.addEventListener("visibilitychange", function () {{
+      if (document.visibilityState === "hidden") show("success");
+    }});
+    // Top-level navigation is the reliable launcher on macOS (an iframe gets blocked).
+    setTimeout(function () {{ window.location.href = link; }}, 100);
+    // No app focus within the window → assume not installed → offer the download.
+    setTimeout(function () {{
+      if (document.visibilityState !== "hidden") show("getapp");
+    }}, 2000);
+  }})();
+  </script>
 </body></html>"""
 
 

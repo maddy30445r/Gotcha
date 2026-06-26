@@ -99,6 +99,12 @@ def init_db():
             used       INTEGER DEFAULT 0
         )""")
         c.execute("CREATE INDEX IF NOT EXISTS idx_users_api ON users(api_token)")
+        # Migration: last time the desktop app was seen talking to the backend (used to
+        # tell the web app whether a Mac app is connected). Idempotent on existing DBs.
+        try:
+            c.execute("ALTER TABLE users ADD COLUMN desktop_seen_at REAL")
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
 
 def _row_to_record(r):
@@ -110,6 +116,8 @@ def _row_to_record(r):
         "display_name": r["display_name"] or r["user_id"],
         "email": r["email"],
     }
+    if "desktop_seen_at" in r.keys():
+        rec["desktop_seen_at"] = r["desktop_seen_at"]
     if r["cap_minutes"] is not None:
         rec["cap_minutes"] = r["cap_minutes"]
     for k in ("glossary", "hotwords"):
@@ -148,6 +156,14 @@ def api_token_for(user_id):
     with _conn() as c:
         r = c.execute("SELECT api_token FROM users WHERE user_id=?", (user_id,)).fetchone()
         return r["api_token"] if r else None
+
+
+def touch_desktop_seen(user_id, when=None):
+    """Record that the desktop app was just seen talking to the backend (lets the web
+    app tell whether a Mac app is connected)."""
+    with _conn() as c:
+        c.execute("UPDATE users SET desktop_seen_at=? WHERE user_id=?",
+                  (when if when is not None else time.time(), user_id))
 
 
 # ------------------------------------------------------------------- create

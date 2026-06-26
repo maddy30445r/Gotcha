@@ -612,8 +612,23 @@ player.addEventListener("ended", () => {
 });
 
 /* ── record control (native capture via Tauri → upload) ──────────────── */
+// Web only: open the connected Mac app via the deep link. If the tab doesn't background
+// within ~1.5s the app didn't actually launch (e.g. uninstalled since it was last seen),
+// so fall back to the "get the Mac app" modal — no dead end.
+function openDesktopApp() {
+  let opened = false;
+  const onHide = () => { if (document.visibilityState === "hidden") opened = true; };
+  document.addEventListener("visibilitychange", onHide);
+  toast("Opening Gotcha…", "ok");
+  window.location.href = "gotcha://open";
+  setTimeout(() => {
+    document.removeEventListener("visibilitychange", onHide);
+    if (!opened) openRecordModal();
+  }, 1500);
+}
+
 async function startRecording() {
-  if (!TAURI) { openRecordModal(); return; }
+  if (!TAURI) { hasDesktop() ? openDesktopApp() : openRecordModal(); return; }
   if (!authToken()) { openSettings(); return; }
   recBtn.disabled = true;
   try {
@@ -751,7 +766,13 @@ function paintAccount() {
     if (a) a.textContent = avatar;
     if (us) us.textContent = usage;
   });
+  // Web: only offer "Connect the desktop app" until one is connected; then show the
+  // connected state instead. (has_desktop comes from /api/auth/me.)
+  const connected = !!u.has_desktop;
+  const ca = $("#connect-app"); if (ca) ca.hidden = connected;
+  const ds = $("#desktop-status"); if (ds) ds.hidden = !connected;
 }
+const hasDesktop = () => !!(currentUser && currentUser.has_desktop);
 async function fillAccount() {
   try { currentUser = await api("/api/auth/me"); } catch (_) {}
   paintAccount();
