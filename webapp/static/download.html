@@ -48,13 +48,19 @@
       <h2>Install &amp; first run</h2>
       <ol>
         <li>Open the downloaded <code>Gotcha.dmg</code> and drag <b>Gotcha</b> to Applications.</li>
-        <li>First launch only: <b>right-click → Open</b> (the build is self-signed, not yet notarized), then confirm.</li>
+        <li>First launch only: open Applications, <b>right-click Gotcha → Open</b>, then click
+            <b>Open</b> in the dialog. (macOS warns because we're a young indie app that isn't
+            notarized by Apple yet — this is expected, and it's a one-time step.)</li>
         <li>When asked, grant <b>Microphone</b> and <b>Screen&nbsp;Recording</b> — Gotcha needs both to capture
             you and the call as separate tracks. After granting Screen Recording the app relaunches itself.</li>
         <li>Open <b>Gotcha</b> and click <b>Sign in in browser</b> — your browser opens, you sign in
             with Google or an email link, and Gotcha connects itself (nothing to copy or paste).
             Then hit <b>● Record</b> when your meeting starts.</li>
       </ol>
+      <p class="hint" style="margin-top:18px"><b>Stuck?</b> If macOS says Gotcha is
+        <b>“damaged” or “can't be opened”</b>, it's the download-quarantine flag, not a real
+        problem. Open <b>Terminal</b> and run, then reopen Gotcha:<br />
+        <code>xattr -dr com.apple.quarantine /Applications/Gotcha.app</code></p>
     </section>
 
     <section class="privacy">
@@ -64,10 +70,12 @@
             there is <b>no background or always-on listening</b>.</li>
         <li><b>Managed keys.</b> Transcription and analysis run on Gotcha's backend over an encrypted (HTTPS)
             connection; your audio and reports are stored on an encrypted disk in your own namespace.</li>
-        <li><b>You control your data.</b> Recordings stay tied to your account; nothing is shared across users.</li>
-        <li class="warn"><b>Beta note:</b> during the beta, interpretation uses a model tier that may use inputs
-            to improve the service — please record <b>non-confidential / test meetings only</b> until the
-            no-train tier is enabled.</li>
+        <li><b>You control your data.</b> Recordings stay tied to your account; nothing is shared across users.
+            Delete any meeting anytime — that removes its audio, transcript, and report.</li>
+        <li><b>No training on your meetings.</b> Real meetings are processed on a no-training AI tier.
+            See <a href="/privacy.html">Privacy</a> and <a href="/terms.html">Terms</a>.</li>
+        <li class="warn"><b>Recording consent:</b> you're responsible for following local recording laws —
+            some regions require everyone on the call to consent.</li>
       </ul>
     </section>
   </div>

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Privacy · Gotcha</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body { background: var(--bg); color: var(--ink);
+      background-image: radial-gradient(680px 320px at 50% -6%, #efeafb 0%, transparent 70%); }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 40px 24px 80px; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 36px; }
+    .doc h1 { font-family: var(--display); font-weight: 800; font-size: 34px; letter-spacing: -.02em; margin: 0 0 6px; }
+    .doc .updated { font-family: var(--mono); font-size: 12px; color: var(--faint); text-transform: uppercase; letter-spacing: .04em; }
+    .doc h2 { font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: -.01em; margin: 34px 0 10px; }
+    .doc p, .doc li { color: #41392f; font-size: 15.5px; line-height: 1.65; }
+    .doc ul { padding-left: 20px; }
+    .doc li { margin: 4px 0; }
+    .doc a { color: var(--accent); }
+    .doc strong { color: var(--ink); }
+    .note { background: var(--surface); border: 1px solid var(--line-card); border-radius: var(--r-md);
+      padding: 16px 18px; margin: 20px 0; box-shadow: var(--shadow-sm); }
+    .note p { margin: 0; font-size: 14.5px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <a class="brand" href="/"><span class="brand-mark">G</span><span class="brand-word">Gotcha</span></a>
+      <a class="navlink" href="/">← Back</a>
+    </div>
+    <div class="doc">
+      <h1>Privacy</h1>
+      <p class="updated">Last updated: 26 June 2026 · Alpha</p>
+
+      <p>Gotcha records the audio of meetings you choose, turns it into a transcript, and
+      generates a short cited report. Your meetings are sensitive, so here's exactly what we
+      collect, where it goes, and how to delete it — in plain language.</p>
+
+      <div class="note"><p><strong>Alpha status.</strong> Gotcha is an early alpha run by a small
+      team. We collect as little as we can to make the product work, but this is not yet an
+      enterprise-hardened service — please don't record meetings whose contents you aren't
+      free to share with the processors listed below.</p></div>
+
+      <h2>What we collect</h2>
+      <ul>
+        <li><strong>Account info</strong> — your email address and name, from Google sign-in or
+          an email sign-in link. No passwords are stored.</li>
+        <li><strong>Meeting audio</strong> — the two audio tracks (your mic and the call audio)
+          that you record and upload, only when you press Record.</li>
+        <li><strong>Derived content</strong> — the transcript and the generated report.</li>
+        <li><strong>Usage</strong> — how many minutes you've processed, to enforce fair-use caps.</li>
+      </ul>
+      <p>We do <strong>not</strong> run a meeting bot, we do not join your calls, and we do not
+      capture anything when you're not actively recording.</p>
+
+      <h2>How your meeting is processed</h2>
+      <p>When you choose to process a recording, your audio and transcript are sent to a small set
+      of service providers to do the work:</p>
+      <ul>
+        <li><strong>Sarvam AI</strong> — speech-to-text transcription of the audio.</li>
+        <li><strong>Anthropic (Claude)</strong> — turns the transcript into the cited report.
+          Real meetings are processed on a <strong>no-training</strong> tier, so your content is
+          not used to train AI models.</li>
+        <li><strong>Amazon Web Services</strong> — hosts the backend and stores your data.</li>
+        <li><strong>Google</strong> — sign-in (if you use "Continue with Google").</li>
+        <li><strong>Resend</strong> — sends sign-in-link emails (if you use email sign-in).</li>
+      </ul>
+
+      <h2>Storage &amp; security</h2>
+      <ul>
+        <li>All traffic is <strong>encrypted in transit</strong> over HTTPS.</li>
+        <li>Your data is stored on <strong>encrypted disk volumes</strong>, isolated per account.
+          We do not add a separate application-level layer of encryption on top of that yet.</li>
+        <li>API keys for the services above are held only on our server and are never exposed to
+          the app or browser.</li>
+      </ul>
+
+      <h2>Retention &amp; deletion</h2>
+      <p>Your recordings and reports belong to you. You can <strong>delete any meeting at any
+      time</strong> from inside the app — that removes its audio, transcript, and report from our
+      storage. To delete your whole account, contact us and we'll remove your data.</p>
+
+      <h2>Recording consent — your responsibility</h2>
+      <p>You are responsible for having the right to record a given meeting. Laws differ by
+      region: some require that <strong>all participants consent</strong> to being recorded.
+      Use Gotcha only where you're allowed to, and tell participants when that's required.</p>
+
+      <h2>Contact</h2>
+      <p>Questions about your data or this policy? Email
+      <a href="mailto:mittalmadhur19@gmail.com">mittalmadhur19@gmail.com</a>.</p>
+
+      <p style="margin-top:32px"><a href="/terms.html">Read the Terms →</a></p>
+    </div>
+  </div>
+</body>
+</html>

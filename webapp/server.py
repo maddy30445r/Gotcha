@@ -56,6 +56,12 @@ USERS_FILE = os.environ.get("GOTCHA_USERS_FILE", os.path.join(ROOT, "users.json"
 
 MAX_UPLOAD_BYTES = int(os.environ.get("GOTCHA_MAX_UPLOAD_MB", "300")) * 1024 * 1024
 DEFAULT_CAP_MIN = float(os.environ.get("GOTCHA_DEFAULT_CAP_MIN", "120"))
+# Global wallet stop: a hard ceiling on PAID (Sarvam) minutes processed across ALL
+# users per calendar day. The per-user cap can't bound total spend during an open
+# soft launch — a traffic spike of many small accounts still adds up — so this is
+# the budget backstop. 0 = unlimited (off). When exceeded, new meetings are PARKED
+# (audio kept, no paid work) instead of discarded, so nothing is lost.
+GLOBAL_DAILY_CAP_MIN = float(os.environ.get("GOTCHA_GLOBAL_DAILY_CAP_MIN", "0"))
 
 # Turn a transcript citation like "[33.84s]" (the trailing "s" is optional — the
 # LLM is inconsistent) into a clickable span (raw markdown; python-markdown
@@ -236,6 +242,87 @@ def _wav_seconds(path):
         return w.getnframes() / float(w.getframerate())
 
 
+# --- global daily spend ceiling (across all users) --------------------------
+# A single ledger file keyed by calendar day → billed seconds. Reuses _usage_lock
+# (calls are sequential, never nested, so no re-entrancy).
+def _global_ledger_path():
+    return os.path.join(USAGE_DIR, "_global.json")
+
+
+def _today_key():
+    return time.strftime("%Y%m%d")
+
+
+def _global_used_min_today():
+    p = _global_ledger_path()
+    if os.path.exists(p):
+        try:
+            with open(p, encoding="utf-8") as f:
+                return json.load(f).get(_today_key(), 0.0) / 60.0
+        except Exception:
+            pass
+    return 0.0
+
+
+def _global_add(seconds):
+    os.makedirs(USAGE_DIR, exist_ok=True)
+    with _usage_lock:
+        led = {}
+        p = _global_ledger_path()
+        if os.path.exists(p):
+            try:
+                with open(p, encoding="utf-8") as f:
+                    led = json.load(f)
+            except Exception:
+                led = {}
+        k = _today_key()
+        led[k] = led.get(k, 0.0) + seconds
+        # Keep only the last ~30 days so the file can't grow without bound.
+        for old in sorted(led)[:-30]:
+            led.pop(old, None)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(led, f)
+
+
+def _global_over_cap(extra_min=0.0):
+    """True if processing `extra_min` more paid minutes would breach today's global
+    ceiling. Always False when the ceiling is disabled (0)."""
+    if GLOBAL_DAILY_CAP_MIN <= 0:
+        return False
+    return _global_used_min_today() + extra_min > GLOBAL_DAILY_CAP_MIN
+
+
+# --- lightweight in-memory rate limiting (per-process; fine for a single box) ---
+_rate_lock = threading.Lock()
+_rate_hits = {}  # key -> list[timestamps within window]
+
+
+def _client_ip(request: Request):
+    """Real client IP behind Caddy (which sets X-Forwarded-For), else the socket peer."""
+    xff = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    return xff or (request.client.host if request.client else "?")
+
+
+def _rate_ok(key, limit, window):
+    """Token-free sliding window: allow at most `limit` hits per `window` seconds
+    for `key`. Returns False when the caller is over the limit."""
+    now = time.time()
+    with _rate_lock:
+        hits = [t for t in _rate_hits.get(key, []) if now - t < window]
+        if len(hits) >= limit:
+            _rate_hits[key] = hits
+            return False
+        hits.append(now)
+        _rate_hits[key] = hits
+        return True
+
+
+def _rate_guard(key, limit, window):
+    """Raise 429 if `key` is over its rate budget."""
+    if not _rate_ok(key, limit, window):
+        raise HTTPException(429, "Too many requests — give it a moment and try again.")
+
+
 # ---------------------------------------------------------------------------
 # Job registry + single background worker (one paid pipeline run at a time —
 # the natural cost chokepoint). Keyed by (uid, base) so users don't collide.
@@ -337,6 +424,13 @@ def _worker():
             if _used_min(user) + billed_min > _cap_min(user):
                 _set_state(user, base, "error", "Usage cap reached — not transcribed.")
                 continue
+            # Global wallet stop — park (don't discard) so it can be processed once
+            # today's capacity frees up. No paid work happens here.
+            if _global_over_cap(billed_min):
+                _write_meta(user, base, parked=True)
+                _set_state(user, base, "parked",
+                           "We've hit today's capacity — saved; try processing again later.")
+                continue
 
             _set_state(user, base, "transcribing")
             entries = pipeline.transcribe_two_track(system_path, mic_path, cfg=cfg)
@@ -350,7 +444,9 @@ def _worker():
             with open(os.path.join(out_dir, f"{base}.transcript.json"), "w",
                       encoding="utf-8") as f:
                 json.dump(entries, f, ensure_ascii=False, indent=2)
-            _usage_add(user, _wav_seconds(system_path) + _wav_seconds(mic_path))
+            billed_secs = _wav_seconds(system_path) + _wav_seconds(mic_path)
+            _usage_add(user, billed_secs)
+            _global_add(billed_secs)
 
             try:
                 _ensure_mix(user, base)
@@ -391,11 +487,12 @@ _waitlist_lock = threading.Lock()
 
 
 @app.post("/api/request-access")
-def request_access(email: str = Body("", embed=True),
+def request_access(request: Request, email: str = Body("", embed=True),
                    website: str = Body("", embed=True)):
     """Beta waitlist (unauthenticated): append an email to waitlist.jsonl on the
     data volume. `website` is a honeypot — real users leave it blank, bots fill it,
     so a non-empty value is silently dropped."""
+    _rate_guard(f"waitlist:{_client_ip(request)}", limit=8, window=300)
     if website.strip():
         return {"ok": True}
     email = (email or "").strip().lower()
@@ -419,6 +516,16 @@ def app_page():
 def login_page():
     """Self-serve sign-in / sign-up page (Google + email magic-link)."""
     return FileResponse(os.path.join(STATIC_DIR, "login.html"))
+
+
+@app.get("/privacy")
+def privacy_page():
+    return FileResponse(os.path.join(STATIC_DIR, "privacy.html"))
+
+
+@app.get("/terms")
+def terms_page():
+    return FileResponse(os.path.join(STATIC_DIR, "terms.html"))
 
 
 DESKTOP_WINDOW = 14 * 24 * 3600  # treat the Mac app as "connected" if seen within 14 days
@@ -587,12 +694,37 @@ def _clear_desktop_redirect(resp):
     resp.delete_cookie(DESKTOP_REDIRECT_COOKIE, path="/")
 
 
+SIGNINS_FILE = os.path.join(DATA_ROOT, "signins.jsonl")
+_signins_lock = threading.Lock()
+
+
+def _log_signin(user, created, client, request):
+    """Record every sign-in / sign-up. Goes two places: a line to stdout (→
+    `docker compose logs app`) and an append to signins.jsonl on the data volume (→
+    `docker compose exec app cat /data/signins.jsonl`). Best-effort — a logging error
+    must never break a login."""
+    event = "signup" if created else "signin"
+    email = (user.get("email") or "").strip()
+    ip = _client_ip(request)
+    print(f"[signin] {event} email={email} user={user.get('user_id')} "
+          f"client={client} ip={ip}", flush=True)
+    rec = {"ts": time.time(), "event": event, "email": email,
+           "user_id": user.get("user_id"), "client": client, "ip": ip}
+    try:
+        with _signins_lock:
+            with open(SIGNINS_FILE, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception as ex:
+        print(f"[signin] could not write {SIGNINS_FILE}: {ex}", flush=True)
+
+
 def _finish_login(request, email, client, display_name=None):
     """Find-or-create the account (open signup → free cap), then hand the client its
     credential: web gets a session cookie + redirect into the app; desktop gets its
     api_token — via the loopback redirect if one was remembered, else the gotcha:// deep
     link interstitial. Either way the browser is also signed into the web."""
     user, _created = authmod.find_or_create_user(email, display_name=display_name)
+    _log_signin(user, _created, client, request)
     if client == "desktop":
         tok = authmod.api_token_for(user["user_id"])
         lb = authmod.read_payload(request.cookies.get(DESKTOP_REDIRECT_COOKIE))
@@ -640,6 +772,9 @@ def auth_email_start(request: Request, email: str = Body(..., embed=True),
     email = (email or "").strip().lower()
     if len(email) > 200 or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
         raise HTTPException(422, "Enter a valid email")
+    # Throttle by IP and by target email (slows enumeration + inbox flooding).
+    _rate_guard(f"email-ip:{_client_ip(request)}", limit=6, window=600)
+    _rate_guard(f"email-to:{email}", limit=4, window=600)
     token = authmod.create_magic_link(email)
     client = "desktop" if client == "desktop" else "web"
     link = f"{_base_url(request)}/api/auth/email/verify?token={token}&client={client}"
@@ -853,9 +988,12 @@ def _parse_glossary(raw):
 
 
 @app.post("/api/upload")
-async def upload(system: UploadFile = File(...), mic: UploadFile = File(...),
+async def upload(request: Request,
+                 system: UploadFile = File(...), mic: UploadFile = File(...),
                  name: str = Form("meeting"), glossary: str = Form(""),
                  process: str = Form("true"), user=Depends(auth)):
+    # Cheap abuse guard: cap uploads per account (heavy, paid work downstream).
+    _rate_guard(f"upload:{_uid(user)}", limit=12, window=60)
     process_now = str(process).strip().lower() in ("1", "true", "yes", "on")
     terms = _parse_glossary(glossary)
 
@@ -869,7 +1007,11 @@ async def upload(system: UploadFile = File(...), mic: UploadFile = File(...),
     # Parking just stores the audio (no paid work), so it's never blocked by cap;
     # and a "process now" that would bust the cap is parked instead of discarded,
     # so the user never loses a recording.
-    over_cap = _used_min(user) + (sys_secs + mic_secs) / 60.0 > _cap_min(user)
+    billed_min = (sys_secs + mic_secs) / 60.0
+    # Park (never discard) when over the user's cap OR when today's global ceiling
+    # is reached — either way the audio is kept and can be processed later.
+    over_cap = (_used_min(user) + billed_min > _cap_min(user)
+                or _global_over_cap(billed_min))
     if process_now and not over_cap:
         _write_meta(user, base, glossary=terms, parked=False, name=name)
         _set_state(user, base, "queued")
@@ -894,6 +1036,8 @@ def process_meeting(base: str, user=Depends(auth)):
     billed_min = (_wav_seconds(system_path) + _wav_seconds(mic_path)) / 60.0
     if _used_min(user) + billed_min > _cap_min(user):
         raise HTTPException(429, "This meeting would exceed your usage cap")
+    if _global_over_cap(billed_min):
+        raise HTTPException(429, "We've hit today's capacity — try again later.")
     terms = _read_meta(user, base).get("glossary", [])
     _write_meta(user, base, parked=False)
     _set_state(user, base, "queued")
