@@ -718,6 +718,32 @@ def _clear_desktop_redirect(resp):
 SIGNINS_FILE = os.path.join(DATA_ROOT, "signins.jsonl")
 _signins_lock = threading.Lock()
 
+# Email me whenever a brand-new user signs up. Set GOTCHA_ADMIN_EMAIL to enable;
+# leave it unset to keep signups silent. Uses the same Resend key as magic-links.
+ADMIN_NOTIFY_EMAIL = (os.environ.get("GOTCHA_ADMIN_EMAIL") or "").strip()
+
+
+def _notify_admin_signup(user, client, ip):
+    """Best-effort 'new user joined' email to the operator. Never raises — a
+    notification failure must not break the user's login."""
+    if not ADMIN_NOTIFY_EMAIL:
+        return
+    email = (user.get("email") or "").strip()
+    name = (user.get("display_name") or "").strip() or "(no name)"
+    when = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+    html = (
+        f"<h2>🎉 New Gotcha signup</h2>"
+        f"<p><b>Email:</b> {email}<br>"
+        f"<b>Name:</b> {name}<br>"
+        f"<b>User ID:</b> {user.get('user_id')}<br>"
+        f"<b>Signed up via:</b> {client}<br>"
+        f"<b>IP:</b> {ip}<br>"
+        f"<b>When:</b> {when}</p>")
+    try:
+        authmod.send_email(ADMIN_NOTIFY_EMAIL, f"New Gotcha user: {email}", html)
+    except Exception as ex:
+        print(f"[signin] admin notify failed: {ex}", flush=True)
+
 
 def _log_signin(user, created, client, request):
     """Record every sign-in / sign-up. Goes two places: a line to stdout (→
@@ -737,6 +763,8 @@ def _log_signin(user, created, client, request):
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     except Exception as ex:
         print(f"[signin] could not write {SIGNINS_FILE}: {ex}", flush=True)
+    if created:
+        _notify_admin_signup(user, client, ip)
 
 
 def _finish_login(request, email, client, display_name=None):
