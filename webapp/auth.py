@@ -40,6 +40,15 @@ SESSION_TTL = 30 * 24 * 3600  # 30 days
 # Public base URL (for absolute links in emails / OAuth redirects). Falls back to
 # the request's own base_url when unset (dev).
 PUBLIC_URL = (os.environ.get("GOTCHA_PUBLIC_URL") or "").rstrip("/")
+
+# Prod guard: a public https deploy MUST set a stable session secret. Without it the
+# random per-process fallback above silently logs every user out on each restart, so
+# refuse to start rather than ship that footgun.
+if PUBLIC_URL.startswith("https://") and not os.environ.get("GOTCHA_SESSION_SECRET"):
+    raise RuntimeError(
+        "GOTCHA_SESSION_SECRET must be set when GOTCHA_PUBLIC_URL is https "
+        "(else sessions reset on every restart). Generate one with: "
+        "python3 -c \"import secrets; print(secrets.token_hex(32))\"")
 # Transactional email via Resend. No key (dev) → links print to the console.
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 RESEND_FROM = os.environ.get("RESEND_FROM", "Gotcha <onboarding@resend.dev>")

@@ -16,6 +16,12 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file: .env          # SARVAM_API_KEY / GEMINI_API_KEY / caps — never committed
+    # Hardening: the app needs no Linux capabilities (binds port 8000 > 1024, only
+    # writes its data volume) and never escalates privileges, so drop both.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - gotcha-data:/data    # pipeline_output/ recordings/ usage/ users.json
     expose:

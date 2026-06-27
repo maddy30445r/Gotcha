@@ -94,6 +94,12 @@ def _load_users():
         with open(USERS_FILE, encoding="utf-8") as f:
             users = json.load(f)
     dev = os.environ.get("GOTCHA_DEV_TOKEN")
+    if dev and authmod.PUBLIC_URL.startswith("https://"):
+        # A dev token is an always-on backdoor user. Never honor it on a public https
+        # deploy — a value copy-pasted from a local .env must not become a prod backdoor.
+        print("[auth] WARNING: GOTCHA_DEV_TOKEN is set on a public deploy — ignoring it.",
+              flush=True)
+        dev = None
     if dev:
         users.setdefault(dev, {
             "user_id": "dev",
@@ -305,9 +311,15 @@ def _client_ip(request: Request):
 
 def _rate_ok(key, limit, window):
     """Token-free sliding window: allow at most `limit` hits per `window` seconds
-    for `key`. Returns False when the caller is over the limit."""
+    for `key`. Returns False when the caller is over the limit. Keys are dropped once
+    their window empties, and the whole map is swept if it grows large, so a flood of
+    unique keys (e.g. many IPs) can't grow memory without bound."""
     now = time.time()
     with _rate_lock:
+        if len(_rate_hits) > 10000:
+            for k, ts in list(_rate_hits.items()):
+                if not any(now - t < window for t in ts):
+                    _rate_hits.pop(k, None)
         hits = [t for t in _rate_hits.get(key, []) if now - t < window]
         if len(hits) >= limit:
             _rate_hits[key] = hits
@@ -408,6 +420,15 @@ def _ensure_mix(user, base):
     return None
 
 
+def _fail_job(user, base, ex, where):
+    """Record a processing failure WITHOUT leaking the raw exception to the user — a
+    provider/LLM error can carry file paths or token fragments. Full detail goes to
+    stdout (ops/`docker compose logs`); the user sees a short, safe message."""
+    print(f"[job-error] {where} uid={_uid(user)} base={base}: {ex!r}", flush=True)
+    _set_state(user, base, "error",
+               "Processing failed — please try again, or re-interpret (free).")
+
+
 def _worker():
     while True:
         user, base, system_path, mic_path, glossary = _work_q.get()
@@ -457,7 +478,7 @@ def _worker():
             pipeline._interpret_and_save(entries, True, out_dir, base, cfg=cfg)
             _set_state(user, base, "done")
         except BaseException as ex:  # incl. SystemExit (pipeline calls sys.exit)
-            _set_state(user, base, "error", str(ex) or repr(ex))
+            _fail_job(user, base, ex, "transcribe/interpret")
         finally:
             _work_q.task_done()
 
@@ -939,7 +960,8 @@ def get_audio(base: str, track: str, request: Request,
         try:
             path = _ensure_mix(user, base)
         except Exception as ex:
-            raise HTTPException(500, f"Could not build mix: {ex}")
+            print(f"[mix-error] uid={_uid(user)} base={base}: {ex!r}", flush=True)
+            raise HTTPException(500, "Could not build the mixed track.")
         if not path:
             raise HTTPException(404, f"No two-track audio to mix for {base}")
         return FileResponse(path, media_type="audio/wav")
@@ -1028,6 +1050,7 @@ async def upload(request: Request,
 @app.post("/api/process/{base}")
 def process_meeting(base: str, user=Depends(auth)):
     """Start (or resume) processing a parked meeting whose audio is already stored."""
+    _rate_guard(f"process:{_uid(user)}", limit=12, window=60)
     base = _safe_base(base)
     system_path = _rec_path(user, base, ".system.wav")
     mic_path = _rec_path(user, base, ".mic.wav")
@@ -1060,13 +1083,14 @@ def _reinterpret_job(user, base, terms):
         pipeline._interpret_and_save(entries, two_track, _out_dir(user), base, cfg=cfg)
         _set_state(user, base, "done")
     except BaseException as ex:  # incl. SystemExit (pipeline calls sys.exit)
-        _set_state(user, base, "error", str(ex) or repr(ex))
+        _fail_job(user, base, ex, "reinterpret")
 
 
 @app.post("/api/reinterpret/{base}")
 def reinterpret_meeting(base: str, user=Depends(auth)):
     """Re-interpret an already-transcribed meeting for free (skips Sarvam). Use after
     fixing an interpret failure — out of LLM credits, a bad prompt, a glossary tweak."""
+    _rate_guard(f"reinterpret:{_uid(user)}", limit=12, window=60)
     base = _safe_base(base)
     if not os.path.exists(os.path.join(_out_dir(user), f"{base}.transcript.json")):
         raise HTTPException(404, "No saved transcript to re-interpret")

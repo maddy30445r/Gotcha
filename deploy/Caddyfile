@@ -9,5 +9,14 @@ gotcha-app.duckdns.org {
 	request_body {
 		max_size 350MB
 	}
+	# Baseline security headers (HSTS forces HTTPS for a year; nosniff + DENY block
+	# MIME-sniffing and clickjacking; no-referrer keeps URLs out of outbound Referer).
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
 	reverse_proxy app:8000
 }
