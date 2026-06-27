@@ -5,7 +5,7 @@
 # Audio uploads are large two-track WAVs (cap GOTCHA_MAX_UPLOAD_MB, default 300MB);
 # raise Caddy's request body limit to match so big meetings aren't rejected at the
 # proxy before reaching the app's own size check.
-gotcha-app.duckdns.org {
+gotcha-trial.duckdns.org {
 	request_body {
 		max_size 350MB
 	}
