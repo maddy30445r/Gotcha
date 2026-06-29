@@ -151,6 +151,30 @@ fn stop_blocking(mut rec: RecState) -> Result<(), String> {
     Ok(())
 }
 
+/// Downsample a 48 kHz mono PCM16 WAV to 16 kHz — the STT-native rate, so it's
+/// effectively lossless for transcription — which cuts the upload payload ~3x.
+/// macOS-only (uses the built-in `afconvert`); returns None on any failure so
+/// the caller transparently falls back to uploading the original file.
+fn downsample_16k(src: &str) -> Option<String> {
+    let stem = std::path::Path::new(src)
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "track.wav".into());
+    let out = std::env::temp_dir().join(format!("gotcha-16k-{stem}"));
+    let out_str = out.to_string_lossy().into_owned();
+    let ok = std::process::Command::new("afconvert")
+        .args(["-f", "WAVE", "-d", "LEI16@16000", "-c", "1", src, &out_str])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if ok {
+        Some(out_str)
+    } else {
+        let _ = std::fs::remove_file(&out_str);
+        None
+    }
+}
+
 fn upload_blocking(
     server_url: String,
     token: String,
@@ -161,33 +185,64 @@ fn upload_blocking(
     process: bool,
 ) -> Result<String, String> {
     let url = format!("{}/api/upload", server_url.trim_end_matches('/'));
+
+    // Shrink the payload ~3x before sending by downsampling to 16 kHz. These are
+    // temp copies; the original 48 kHz WAVs stay on disk until the server
+    // confirms a durable write (so a failed upload is still retryable).
+    let sys_up = downsample_16k(&system_path).unwrap_or_else(|| system_path.clone());
+    let mic_up = downsample_16k(&mic_path).unwrap_or_else(|| mic_path.clone());
+
+    let result = upload_files(&url, &token, &name, &sys_up, &mic_up, &glossary, process);
+
+    // Drop the temp downsampled copies (if any were made).
+    if sys_up != system_path {
+        let _ = std::fs::remove_file(&sys_up);
+    }
+    if mic_up != mic_path {
+        let _ = std::fs::remove_file(&mic_up);
+    }
+    // Durably stored server-side now — drop the local originals. On failure we
+    // keep them so the user can retry.
+    if result.is_ok() {
+        let _ = std::fs::remove_file(&system_path);
+        let _ = std::fs::remove_file(&mic_path);
+    }
+    result
+}
+
+fn upload_files(
+    url: &str,
+    token: &str,
+    name: &str,
+    system_path: &str,
+    mic_path: &str,
+    glossary: &str,
+    process: bool,
+) -> Result<String, String> {
     let client = reqwest::blocking::Client::new();
 
     // A flaky network shouldn't cost the user their recording. Retry transient
-    // failures (dropped connection, 5xx, 429) with backoff. The local WAVs are
-    // deleted ONLY after a confirmed 2xx (the backend persists both tracks before
-    // responding), so giving up leaves them on disk for the user to retry.
+    // failures (dropped connection, 5xx, 429) with backoff. The caller deletes
+    // the local WAVs ONLY after a confirmed 2xx, so giving up leaves them on
+    // disk for the user to retry.
     let mut last_err = String::new();
     for attempt in 0..3u32 {
         // multipart::Form is consumed by send(), so rebuild it (and re-open the
         // files) on each attempt.
         let form = reqwest::blocking::multipart::Form::new()
-            .text("name", name.clone())
-            .text("glossary", glossary.clone())
+            .text("name", name.to_string())
+            .text("glossary", glossary.to_string())
             .text("process", if process { "true" } else { "false" })
-            .file("system", &system_path)
+            .file("system", system_path)
             .map_err(|e| format!("reading system track: {e}"))?
-            .file("mic", &mic_path)
+            .file("mic", mic_path)
             .map_err(|e| format!("reading mic track: {e}"))?;
 
-        match client.post(&url).bearer_auth(&token).multipart(form).send() {
+        match client.post(url).bearer_auth(token).multipart(form).send() {
             Ok(resp) => {
                 let status = resp.status();
                 let body = resp.text().unwrap_or_default();
                 if status.is_success() {
-                    // Durably stored server-side now — drop the local copies.
-                    let _ = std::fs::remove_file(&system_path);
-                    let _ = std::fs::remove_file(&mic_path);
                     let v: serde_json::Value =
                         serde_json::from_str(&body).map_err(|e| e.to_string())?;
                     return Ok(v.get("base").and_then(|b| b.as_str())

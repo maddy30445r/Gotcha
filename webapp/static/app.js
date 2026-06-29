@@ -350,7 +350,7 @@ async function openMeeting(base, quiet) {
     html += `<div class="status-line error">Couldn’t finish this one: ${esc(m.error || "unknown error")}</div>`;
     if (canReinterpret) html += `<div class="error-actions"><button class="link-btn" id="reinterpret-btn">Re-interpret (free)</button></div>`;
   } else if (PROCESSING.has(m.state)) {
-    html += decodingPanel();
+    html += decodingPanel(m.state);
   }
 
   if (m.report_md) {
@@ -391,12 +391,32 @@ async function openMeeting(base, quiet) {
   if (!quiet) document.getElementById("workspace").scrollTo({ top: 0, behavior: "smooth" });
 }
 
-function decodingPanel() {
+// Copy for each processing phase. Keyed by the backend job state so the panel
+// advances (transcribing → interpreting) instead of looking frozen on long meetings.
+const DECODE_PHASES = {
+  queued:       { h: "Queued — starting soon…",     p: "Your meeting is in line. Decoding will begin in a moment." },
+  recording:    { h: "Wrapping up the recording…",  p: "Finishing the capture before we start decoding." },
+  transcribing: { h: "Transcribing your meeting…",  p: "Separating the two voices and writing down every line." },
+  interpreting: { h: "Reading between the lines…",  p: "Pulling out decisions, your action items and what the lead really meant." },
+};
+const DECODE_DEFAULT = { h: "Decoding your meeting…", p: "Separating the two voices and reading between the lines. This usually takes under a minute." };
+
+function decodingPanel(state) {
+  const c = DECODE_PHASES[state] || DECODE_DEFAULT;
   return `<div class="decoding-panel reveal">
       <div class="decoding-badge"><span class="dot"></span>DECODING</div>
-      <h2>Decoding your meeting…</h2>
-      <p>Separating the two voices and reading between the lines. This usually takes under a minute.</p>
+      <h2 class="decoding-h">${c.h}</h2>
+      <p class="decoding-p">${c.p}</p>
       <div class="shimmer-bars"><i style="width:90%"></i><i style="width:100%"></i><i style="width:74%"></i></div>
+    </div>`;
+}
+
+function uploadingPanel() {
+  return `<div class="decoding-panel reveal">
+      <div class="decoding-badge"><span class="dot"></span>UPLOADING</div>
+      <h2>Sending your recording…</h2>
+      <p>Securely uploading your audio. This can take a bit for longer meetings — hang tight.</p>
+      <div class="shimmer-bars"><i style="width:60%"></i><i style="width:88%"></i><i style="width:42%"></i></div>
     </div>`;
 }
 
@@ -408,6 +428,16 @@ function pollMeeting(base) {
       clearInterval(pollId); pollId = null;
       await loadMeetings();
       if (current && current.base === base) openMeeting(base, true);
+      return;
+    }
+    // Still processing — advance the panel copy to the current phase in place
+    // so a long transcribe/interpret doesn't look frozen.
+    if (current && current.base === base) {
+      const c = DECODE_PHASES[j.state] || DECODE_DEFAULT;
+      const h = reportEl.querySelector(".decoding-h");
+      const p = reportEl.querySelector(".decoding-p");
+      if (h && h.textContent !== c.h) h.textContent = c.h;
+      if (p && p.textContent !== c.p) p.textContent = c.p;
     }
   }, 3000);
 }
@@ -674,6 +704,15 @@ async function finishUpload(processNow) {
   closePostRec();
   const glossary = ($("#post-glossary").value || "").trim();
   recBtn.disabled = true;
+
+  // The upload (two uncompressed WAVs) can take a while on long meetings. Show an
+  // immediate uploading panel so the screen is never blank while invoke() blocks.
+  if (pollId) { clearInterval(pollId); pollId = null; }
+  current = null; setTitle(null); primePlayerEmpty();
+  reportEl.innerHTML = uploadingPanel();
+  revealIn(reportEl);
+  document.getElementById("workspace").scrollTo({ top: 0, behavior: "smooth" });
+
   let serverBase;
   try {
     serverBase = await invoke("upload_recording", {
@@ -682,7 +721,12 @@ async function finishUpload(processNow) {
       systemPath: sess.system_path, micPath: sess.mic_path,
       glossary, process: processNow,
     });
-  } catch (e) { toast("Upload failed: " + e, "err"); recBtn.disabled = false; return; }
+  } catch (e) {
+    toast("Upload failed: " + e, "err");
+    reportEl.innerHTML = `<div class="status-line error">Upload failed: ${esc(String(e))}<br>Your recording is kept locally — you can try again.</div>`;
+    recBtn.disabled = false;
+    return;
+  }
   recBtn.disabled = false;
   $("#post-glossary").value = "";
   await loadMeetings();
