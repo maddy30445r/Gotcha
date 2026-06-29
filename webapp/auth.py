@@ -101,7 +101,8 @@ def init_db():
             model       TEXT,
             api_token   TEXT UNIQUE,
             tier        TEXT DEFAULT 'free',
-            language_code TEXT
+            language_code TEXT,
+            report_language TEXT
         )""")
         c.execute("""CREATE TABLE IF NOT EXISTS magic_links(
             token      TEXT PRIMARY KEY,
@@ -125,6 +126,11 @@ def init_db():
         # Migration: Sarvam language hint (null = auto-detect). Idempotent.
         try:
             c.execute("ALTER TABLE users ADD COLUMN language_code TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        # Migration: report output language (null = english). Idempotent.
+        try:
+            c.execute("ALTER TABLE users ADD COLUMN report_language TEXT")
         except sqlite3.OperationalError:
             pass  # column already exists
 
@@ -155,6 +161,8 @@ def _row_to_record(r):
         rec["model"] = r["model"]
     if "language_code" in r.keys() and r["language_code"]:
         rec["language_code"] = r["language_code"]
+    if "report_language" in r.keys() and r["report_language"]:
+        rec["report_language"] = r["report_language"]
     return rec
 
 
@@ -192,7 +200,7 @@ def touch_desktop_seen(user_id, when=None):
 
 
 # Columns the settings endpoint may write. List fields are JSON-encoded.
-_UPDATABLE = {"display_name", "language_code", "glossary", "hotwords"}
+_UPDATABLE = {"display_name", "language_code", "report_language", "glossary", "hotwords"}
 _JSON_FIELDS = {"glossary", "hotwords"}
 GLOSSARY_CAP = 300
 
@@ -211,6 +219,17 @@ def update_user(user_id, **fields):
         with _write_lock, _conn() as c:
             c.execute(f"UPDATE users SET {','.join(sets)} WHERE user_id=?", vals)
     return user_by_id(user_id)
+
+
+def delete_user(user_id):
+    """Erase the user's account row + any pending magic links (the "delete my data"
+    right). The caller wipes the user's files separately."""
+    rec = user_by_id(user_id)
+    email = (rec or {}).get("email")
+    with _write_lock, _conn() as c:
+        c.execute("DELETE FROM users WHERE user_id=?", (user_id,))
+        if email:
+            c.execute("DELETE FROM magic_links WHERE email=?", (email.lower(),))
 
 
 def add_user_glossary(user_id, new_terms):

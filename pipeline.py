@@ -82,6 +82,10 @@ class UserConfig:
     # Hindi-English well). A specific code like "ta-IN" helps non-Hindi Indian
     # languages; transcribe() falls back to "unknown" if a code is rejected.
     language_code: str = "unknown"
+    # Report output language: "english" (default) | "hinglish" | "hindi". Only the
+    # explanatory prose switches — headers, field labels, [timestamps] and verbatim
+    # quotes stay as-is so the app can still parse the report.
+    report_language: str = "english"
 
 
 def default_config():
@@ -92,6 +96,7 @@ def default_config():
         provider=os.environ.get("GOTCHA_LLM_PROVIDER", "groq"),
         model=os.environ.get("GOTCHA_LLM_MODEL", "llama-3.3-70b-versatile"),
         language_code=os.environ.get("GOTCHA_LANGUAGE_CODE", "unknown"),
+        report_language=os.environ.get("GOTCHA_REPORT_LANGUAGE", "english"),
     )
 
 
@@ -222,11 +227,29 @@ def transcribe(audio_path, *, diarize=True, force_speaker=None, label="audio",
 # ----------------------------------------------------------------------------
 # STEP 2 — build the strict interpretation prompt (citation allowlist generated)
 # ----------------------------------------------------------------------------
+_REPORT_LANG_DIRECTIVE = {
+    "english": "",  # default — the prompt is already English
+    "hinglish": (
+        "- LANGUAGE: Write the explanatory prose in natural Hinglish (Roman-script "
+        "Hindi-English code-mix, the way Indian devs actually talk). Keep the four "
+        "`### N. …` section headers, the field labels (Priority/Why/How/Source), every "
+        "[N.Ns] timestamp, and all verbatim quotes EXACTLY as specified — only the "
+        "explanations switch to Hinglish."),
+    "hindi": (
+        "- LANGUAGE: Write the explanatory prose in Hindi (Devanagari script). Keep the "
+        "four `### N. …` section headers and the field labels (Priority/Why/How/Source) "
+        "in English, and every [N.Ns] timestamp and all verbatim quotes EXACTLY as "
+        "specified — only the explanations switch to Hindi."),
+}
+
+
 def build_prompt(entries, two_track=False, *, cfg=None):
     cfg = cfg or DEFAULT_CONFIG
     YOUR_NAME = cfg.your_name
     valid_ts = ", ".join(str(e["t"]) for e in entries)
     glossary = "; ".join(cfg.glossary)
+    lang_directive = _REPORT_LANG_DIRECTIVE.get(
+        (cfg.report_language or "english").lower(), "")
     if two_track:
         speaker_block = f"""- TRANSCRIPT: entries with speaker_id, start time, text. Speaker labels are
   RELIABLE for who-vs-{YOUR_NAME}: entries labeled "{YOUR_NAME}" were captured
@@ -317,6 +340,7 @@ Do not manufacture doubts.
   override the no-hallucination rule below: include only things actually said.
 - Do not hallucinate tasks/deadlines/meanings/steps. Under-reporting beats inventing.
 - Address {YOUR_NAME} directly, warm and concise.
+{lang_directive}
 """.strip()
 
 

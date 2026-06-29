@@ -193,6 +193,12 @@ body.app-shell { height: 100vh; display: flex; flex-direction: column; overflow:
 }
 .pop-select:focus, .pop-textarea:focus { border-color: var(--accent-line); background: var(--surface); }
 .ghost-btn--sm { margin-top: 6px; font-size: 12.5px; padding: 5px 10px; }
+.pop-hint { margin: 5px 0 0; font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.danger-btn { width: calc(100% - 24px); margin: 2px 12px 8px; padding: 9px 12px;
+  background: none; border: 1px solid var(--line-card); border-radius: var(--r-sm);
+  color: var(--coral, #c2452f); font-family: var(--body); font-size: 13px; font-weight: 700;
+  cursor: pointer; transition: var(--t); }
+.danger-btn:hover { background: #f7e6e2; border-color: var(--coral, #c2452f); }
 .listened-for { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 var(--s4); }
 .lf-label { font-family: var(--mono); font-size: 10.5px; font-weight: 700;
   letter-spacing: .03em; text-transform: uppercase; color: var(--faint); }

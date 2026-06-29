@@ -208,6 +208,13 @@ function fillLangSelect(el, selected) {
   el.innerHTML = LANGS.map(([code, label]) =>
     `<option value="${code}"${code === (selected || "unknown") ? " selected" : ""}>${label}</option>`).join("");
 }
+// Report output language (must match server ALLOWED_REPORT_LANGS).
+const REPORT_LANGS = [["english", "English"], ["hinglish", "Hinglish"], ["hindi", "हिंदी (Hindi)"]];
+function fillReportLangSelect(el, selected) {
+  if (!el) return;
+  el.innerHTML = REPORT_LANGS.map(([code, label]) =>
+    `<option value="${code}"${code === (selected || "english") ? " selected" : ""}>${label}</option>`).join("");
+}
 
 // "We listened for these terms" — the glossary/hotwords Sarvam was biased toward,
 // shown for trust. Hidden when empty.
@@ -881,8 +888,9 @@ function paintAccount() {
   const connected = !!u.has_desktop;
   const ca = $("#connect-app"); if (ca) ca.hidden = connected;
   const ds = $("#desktop-status"); if (ds) ds.hidden = !connected;
-  // Capture prefs (default language + saved glossary).
+  // Capture prefs (default language + report language + saved glossary).
   fillLangSelect($("#set-language"), u.language_code);
+  fillReportLangSelect($("#set-report-language"), u.report_language);
   const gl = $("#set-glossary"); if (gl) gl.value = (u.glossary || []).join(", ");
 }
 
@@ -896,6 +904,31 @@ if (setLang) setLang.onchange = async () => {
     if (currentUser) currentUser.language_code = r.language_code;
     toast("Language saved", "ok");
   } catch (e) { toast("Couldn't save: " + e.message, "err"); }
+};
+// Persist report language on change.
+const setRepLang = $("#set-report-language");
+if (setRepLang) setRepLang.onchange = async () => {
+  try {
+    const r = await api("/api/settings", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ report_language: setRepLang.value }) });
+    if (currentUser) currentUser.report_language = r.report_language;
+    toast("Report language saved", "ok");
+  } catch (e) { toast("Couldn't save: " + e.message, "err"); }
+};
+// Delete account + all data (irreversible).
+const delAcct = $("#delete-account");
+if (delAcct) delAcct.onclick = async () => {
+  if (!confirm("Delete your account and ALL your recordings, transcripts and reports? This cannot be undone.")) return;
+  try {
+    await api("/api/account", { method: "DELETE" });
+  } catch (e) { toast("Couldn't delete: " + e.message, "err"); return; }
+  if (TAURI) {
+    localStorage.removeItem("gotcha_token"); localStorage.removeItem("gotcha_server");
+    currentUser = null; closeSettings(); showWelcome();
+  } else {
+    location.replace("/login");
+  }
 };
 // Save the curated glossary on demand.
 const setGlossSave = $("#set-glossary-save");

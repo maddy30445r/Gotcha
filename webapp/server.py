@@ -24,11 +24,13 @@ not app-level crypto, so playback stays a plain file serve.
 
 import os
 import re
+import sys
 import html
 import json
 import time
 import wave
 import queue
+import shutil
 import threading
 
 from urllib.parse import quote, urlparse, urlencode
@@ -62,6 +64,10 @@ DEFAULT_CAP_MIN = float(os.environ.get("GOTCHA_DEFAULT_CAP_MIN", "120"))
 # the budget backstop. 0 = unlimited (off). When exceeded, new meetings are PARKED
 # (audio kept, no paid work) instead of discarded, so nothing is lost.
 GLOBAL_DAILY_CAP_MIN = float(os.environ.get("GOTCHA_GLOBAL_DAILY_CAP_MIN", "0"))
+# Privacy: auto-delete recorded AUDIO (the sensitive part) older than N days; the
+# report + transcript are kept (they're the value and far less sensitive). 0 = off
+# (keep audio indefinitely). Backs the "audio is discardable" promise in the policy.
+AUDIO_RETENTION_DAYS = float(os.environ.get("GOTCHA_AUDIO_RETENTION_DAYS", "0"))
 
 # Turn a transcript citation like "[33.84s]" (the trailing "s" is optional — the
 # LLM is inconsistent) into a clickable span (raw markdown; python-markdown
@@ -160,6 +166,8 @@ ALLOWED_LANGS = {
     "kn-IN": "Kannada", "gu-IN": "Gujarati", "pa-IN": "Punjabi",
     "ml-IN": "Malayalam",
 }
+# Report output languages (label shown in UI). Only the prose switches.
+ALLOWED_REPORT_LANGS = {"english": "English", "hinglish": "Hinglish", "hindi": "हिंदी"}
 
 
 def _cfg_for(user):
@@ -171,6 +179,7 @@ def _cfg_for(user):
         provider=user.get("provider", pipeline.DEFAULT_CONFIG.provider),
         model=user.get("model", pipeline.DEFAULT_CONFIG.model),
         language_code=user.get("language_code", pipeline.DEFAULT_CONFIG.language_code),
+        report_language=user.get("report_language", pipeline.DEFAULT_CONFIG.report_language),
     )
 
 
@@ -503,7 +512,46 @@ def _worker():
             _work_q.task_done()
 
 
+def _retention_sweep():
+    """Delete audio WAVs older than AUDIO_RETENTION_DAYS across all users. Reports +
+    transcripts stay. No-op when retention is off."""
+    if AUDIO_RETENTION_DAYS <= 0:
+        return 0
+    cutoff = time.time() - AUDIO_RETENTION_DAYS * 86400
+    removed = 0
+    if not os.path.isdir(REC_ROOT):
+        return 0
+    for uid in os.listdir(REC_ROOT):
+        d = os.path.join(REC_ROOT, uid)
+        if not os.path.isdir(d):
+            continue
+        for fn in os.listdir(d):
+            if not fn.endswith(".wav"):
+                continue
+            p = os.path.join(d, fn)
+            try:
+                if os.path.getmtime(p) < cutoff:
+                    os.remove(p); removed += 1
+            except OSError:
+                pass
+    if removed:
+        print(f"[retention] removed {removed} audio file(s) older than "
+              f"{AUDIO_RETENTION_DAYS} day(s)", file=sys.stderr)
+    return removed
+
+
+def _retention_loop():
+    while True:
+        try:
+            _retention_sweep()
+        except Exception as ex:
+            print(f"[retention] sweep error: {ex}", file=sys.stderr)
+        time.sleep(86400)  # once a day
+
+
 threading.Thread(target=_worker, daemon=True).start()
+if AUDIO_RETENTION_DAYS > 0:
+    threading.Thread(target=_retention_loop, daemon=True).start()
 app = FastAPI(title="Gotcha")
 
 # The desktop app's webview is a different origin (tauri://localhost) from the
@@ -590,6 +638,7 @@ def auth_me(user=Depends(auth)):
         "has_desktop": _has_desktop(user),
         "tier": user.get("tier", "free"),
         "language_code": user.get("language_code", "unknown"),
+        "report_language": user.get("report_language", "english"),
         "glossary": user.get("glossary", []),
     }
 
@@ -604,6 +653,11 @@ def update_settings(payload: dict = Body(...), user=Depends(auth)):
         if lang not in ALLOWED_LANGS:
             raise HTTPException(400, "Unsupported language")
         fields["language_code"] = lang
+    if "report_language" in payload:
+        rl = (payload.get("report_language") or "english").strip().lower()
+        if rl not in ALLOWED_REPORT_LANGS:
+            raise HTTPException(400, "Unsupported report language")
+        fields["report_language"] = rl
     if "glossary" in payload:
         raw = payload.get("glossary")
         terms = raw if isinstance(raw, list) else _parse_glossary(raw or "")
@@ -616,6 +670,7 @@ def update_settings(payload: dict = Body(...), user=Depends(auth)):
     rec = authmod.update_user(_uid(user), **fields) if fields else user
     return {
         "language_code": rec.get("language_code", "unknown"),
+        "report_language": rec.get("report_language", "english"),
         "glossary": rec.get("glossary", []),
     }
 
@@ -1285,6 +1340,28 @@ def delete_meeting(base: str, user=Depends(auth)):
     if not removed:
         raise HTTPException(404, "No such meeting")
     return {"deleted": base, "files_removed": removed}
+
+
+@app.delete("/api/account")
+def delete_account(user=Depends(auth)):
+    """Delete-my-data: erase ALL of this user's audio, transcripts, reports, usage
+    ledger and the account itself. Irreversible. The "delete my data" right behind
+    the privacy policy."""
+    uid = _uid(user)
+    for d in (os.path.join(REC_ROOT, uid), os.path.join(OUT_ROOT, uid)):
+        shutil.rmtree(d, ignore_errors=True)
+    try:
+        os.remove(os.path.join(USAGE_DIR, f"{uid}.json"))
+    except OSError:
+        pass
+    with _jobs_lock:
+        for key in [k for k in _jobs if k[0] == uid]:
+            _jobs.pop(key, None)
+    authmod.delete_user(uid)
+    # Web sessions are cookie-based — clear it so the browser is signed out too.
+    resp = JSONResponse({"deleted": True})
+    resp.delete_cookie(authmod.SESSION_COOKIE, path="/")
+    return resp
 
 
 # ---------------------------------------------------------------------------
