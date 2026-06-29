@@ -183,6 +183,21 @@ body.app-shell { height: 100vh; display: flex; flex-direction: column; overflow:
   background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.2); transition: var(--t); }
 .knob.on i { left: 18px; }
 .popover-sep { height: 1px; background: var(--line-card); margin: 6px 10px; }
+.pop-field { padding: 6px 12px; }
+.pop-field label { display: block; font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase; color: var(--faint); margin-bottom: 5px; }
+.pop-select, .pop-textarea {
+  width: 100%; font-family: var(--body); font-size: 14px; color: var(--ink);
+  background: var(--sidebar); border: 1px solid var(--line-card); border-radius: var(--r-sm);
+  padding: 8px 10px; outline: none; transition: var(--t);
+}
+.pop-select:focus, .pop-textarea:focus { border-color: var(--accent-line); background: var(--surface); }
+.ghost-btn--sm { margin-top: 6px; font-size: 12.5px; padding: 5px 10px; }
+.listened-for { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 var(--s4); }
+.lf-label { font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+  letter-spacing: .03em; text-transform: uppercase; color: var(--faint); }
+.lf-chip { font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+  background: var(--sidebar); border: 1px solid var(--line-card); border-radius: 6px; padding: 2px 7px; }
 .acct-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; }
 .acct-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--accent-tint);
   color: var(--accent); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; flex: 0 0 auto; }

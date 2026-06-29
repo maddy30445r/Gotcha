@@ -100,7 +100,8 @@ def init_db():
             provider    TEXT,
             model       TEXT,
             api_token   TEXT UNIQUE,
-            tier        TEXT DEFAULT 'free'
+            tier        TEXT DEFAULT 'free',
+            language_code TEXT
         )""")
         c.execute("""CREATE TABLE IF NOT EXISTS magic_links(
             token      TEXT PRIMARY KEY,
@@ -119,6 +120,11 @@ def init_db():
         # behavior gates on it yet; null/legacy rows read as "free". Idempotent.
         try:
             c.execute("ALTER TABLE users ADD COLUMN tier TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        # Migration: Sarvam language hint (null = auto-detect). Idempotent.
+        try:
+            c.execute("ALTER TABLE users ADD COLUMN language_code TEXT")
         except sqlite3.OperationalError:
             pass  # column already exists
 
@@ -147,6 +153,8 @@ def _row_to_record(r):
         rec["provider"] = r["provider"]
     if r["model"]:
         rec["model"] = r["model"]
+    if "language_code" in r.keys() and r["language_code"]:
+        rec["language_code"] = r["language_code"]
     return rec
 
 
@@ -181,6 +189,49 @@ def touch_desktop_seen(user_id, when=None):
     with _conn() as c:
         c.execute("UPDATE users SET desktop_seen_at=? WHERE user_id=?",
                   (when if when is not None else time.time(), user_id))
+
+
+# Columns the settings endpoint may write. List fields are JSON-encoded.
+_UPDATABLE = {"display_name", "language_code", "glossary", "hotwords"}
+_JSON_FIELDS = {"glossary", "hotwords"}
+GLOSSARY_CAP = 300
+
+
+def update_user(user_id, **fields):
+    """Update an allowlisted set of user columns (list fields are JSON-encoded).
+    Returns the refreshed user record."""
+    sets, vals = [], []
+    for k, v in fields.items():
+        if k not in _UPDATABLE:
+            continue
+        sets.append(f"{k}=?")
+        vals.append(json.dumps(v) if k in _JSON_FIELDS else v)
+    if sets:
+        vals.append(user_id)
+        with _write_lock, _conn() as c:
+            c.execute(f"UPDATE users SET {','.join(sets)} WHERE user_id=?", vals)
+    return user_by_id(user_id)
+
+
+def add_user_glossary(user_id, new_terms):
+    """Merge new terms into the user's saved glossary (case-insensitive dedup,
+    most-recent kept, capped) so accuracy compounds across meetings. No-op when
+    nothing new. Returns the refreshed record."""
+    new_terms = [t.strip() for t in (new_terms or []) if t and t.strip()]
+    if not new_terms:
+        return user_by_id(user_id)
+    rec = user_by_id(user_id) or {}
+    existing = list(rec.get("glossary") or [])
+    seen = {t.lower() for t in existing}
+    added = []
+    for t in new_terms:
+        if t.lower() not in seen:
+            seen.add(t.lower())
+            added.append(t)
+    if not added:
+        return rec
+    merged = (existing + added)[-GLOSSARY_CAP:]
+    return update_user(user_id, glossary=merged)
 
 
 # ------------------------------------------------------------------- create

@@ -36,6 +36,16 @@
         <div class="toggle-row" data-pref="autoDecode"><span>Auto-decode after each meeting</span><span class="knob"><i></i></span></div>
         <div class="toggle-row" data-pref="sound"><span>Play a sound on new insights</span><span class="knob"><i></i></span></div>
         <div class="popover-sep"></div>
+        <div class="pop-field">
+          <label for="set-language">Meeting language</label>
+          <select id="set-language" class="pop-select"></select>
+        </div>
+        <div class="pop-field">
+          <label for="set-glossary">Your saved terms</label>
+          <textarea id="set-glossary" class="pop-textarea" rows="2" placeholder="Worldpay, BookingPal, 3DS"></textarea>
+          <button type="button" id="set-glossary-save" class="ghost-btn ghost-btn--sm">Save terms</button>
+        </div>
+        <div class="popover-sep"></div>
         <div class="acct-row">
           <div class="acct-avatar" id="acct-avatar">G</div>
           <div class="acct-meta">
@@ -179,6 +189,10 @@
         <span>Names &amp; terms (optional)</span>
         <div id="post-suggest" class="suggest-chips" hidden></div>
         <textarea id="post-glossary" rows="2" placeholder="Worldpay, BookingPal, Aadhaar, 3DS"></textarea>
+      </label>
+      <label class="settings-field">
+        <span>Language</span>
+        <select id="post-language" class="pop-select"></select>
       </label>
       <div class="settings-actions postrec-actions">
         <button type="button" id="post-park" class="ghost-btn">Save for later</button>

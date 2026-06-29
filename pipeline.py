@@ -78,6 +78,10 @@ class UserConfig:
     # for real meetings) | "gemini". Real meetings MUST use a no-train tier.
     provider: str = "groq"
     model: str = "llama-3.3-70b-versatile"
+    # Sarvam language hint. "unknown" = auto-detect (default; codemix handles
+    # Hindi-English well). A specific code like "ta-IN" helps non-Hindi Indian
+    # languages; transcribe() falls back to "unknown" if a code is rejected.
+    language_code: str = "unknown"
 
 
 def default_config():
@@ -87,6 +91,7 @@ def default_config():
         your_name=os.environ.get("GOTCHA_YOUR_NAME", "Madhur"),
         provider=os.environ.get("GOTCHA_LLM_PROVIDER", "groq"),
         model=os.environ.get("GOTCHA_LLM_MODEL", "llama-3.3-70b-versatile"),
+        language_code=os.environ.get("GOTCHA_LANGUAGE_CODE", "unknown"),
     )
 
 
@@ -104,13 +109,16 @@ GEMINI_MODEL = DEFAULT_CONFIG.model
 # STEP 1 — transcribe via Sarvam (batch API: handles >30s + diarization)
 # ----------------------------------------------------------------------------
 def transcribe(audio_path, *, diarize=True, force_speaker=None, label="audio",
-               hotwords=None):
+               hotwords=None, language_code=None):
     """Transcribe one file. With force_speaker set, skip diarization and stamp
     every entry with that speaker label (used for the mic track, which is a
     single known speaker). hotwords biases the recognizer toward the team's
-    proper nouns (defaults to the process-wide config)."""
+    proper nouns (defaults to the process-wide config). language_code is the
+    Sarvam language hint ("unknown" = auto-detect); a rejected code falls back
+    to auto-detect rather than failing the run."""
     if hotwords is None:
         hotwords = DEFAULT_CONFIG.hotwords
+    lang = language_code if language_code is not None else DEFAULT_CONFIG.language_code
     from sarvamai import SarvamAI
     key = os.environ.get("SARVAM_API_KEY")
     if not key:
@@ -122,7 +130,7 @@ def transcribe(audio_path, *, diarize=True, force_speaker=None, label="audio",
     job_kwargs = dict(
         model="saaras:v3", mode="codemix",
         with_diarization=diarize, with_timestamps=True,
-        language_code="unknown",
+        language_code=lang or "unknown",
     )
     # Bias the recognizer toward the team's proper nouns. The param has moved
     # across Sarvam SDK versions (newer: `prompt`, a comma-joined string; older:
@@ -160,12 +168,21 @@ def transcribe(audio_path, *, diarize=True, force_speaker=None, label="audio",
     # transient HTTP/network errors are retried; a genuine job failure (bad audio)
     # is re-raised immediately so we don't pay to re-run a hopeless job.
     job = None
+    lang_fallback_done = False
     for attempt in range(4):
         try:
             job = _submit_and_wait()
             break
         except Exception as ex:
             msg = str(ex)
+            # One-time safety net: a specific language hint that Sarvam rejects
+            # shouldn't lose the meeting — retry once with auto-detect.
+            if job_kwargs["language_code"] != "unknown" and not lang_fallback_done:
+                print(f"[Sarvam language '{job_kwargs['language_code']}' failed for "
+                      f"{label}; retrying with auto-detect: {msg[:80]}]", file=sys.stderr)
+                job_kwargs["language_code"] = "unknown"
+                lang_fallback_done = True
+                continue
             transient = any(s in msg for s in (
                 "429", "500", "502", "503", "504", "RESOURCE_EXHAUSTED",
                 "UNAVAILABLE", "INTERNAL", "imeout", "onnection"))
@@ -470,13 +487,13 @@ def drop_bleed(mine, others, window=1.5, sim=0.72, min_chars=8):
     return kept, dropped
 
 
-def _transcribe_system_track(system_path, *, hotwords=None):
+def _transcribe_system_track(system_path, *, hotwords=None, language_code=None):
     """Transcribe the call (system) track with diarization and relabel its speakers
     as Other / Other-2 / … (everyone who isn't the user; we only need to tell them
     apart from each other, not from the user — that split comes from the separate
     mic track)."""
     others = transcribe(system_path, diarize=True, label="call audio (others)",
-                        hotwords=hotwords)
+                        hotwords=hotwords, language_code=language_code)
     ids = {}
     for e in others:
         sid = e["speaker_id"]
@@ -501,7 +518,8 @@ def transcribe_two_track(system_path, mic_path, *, cfg=None):
     # The mic track is mostly silence, so transcribe_mic_vad VAD-trims it first to
     # cut Sarvam cost, then remaps the trimmed transcript back to the real timeline.
     with ThreadPoolExecutor(max_workers=2) as ex:
-        f_sys = ex.submit(_transcribe_system_track, system_path, hotwords=cfg.hotwords)
+        f_sys = ex.submit(_transcribe_system_track, system_path,
+                          hotwords=cfg.hotwords, language_code=cfg.language_code)
         f_mic = ex.submit(transcribe_mic_vad, mic_path, cfg=cfg)
         others, e_sys = _settle(f_sys)
         mine, e_mic = _settle(f_mic)
@@ -549,7 +567,8 @@ def transcribe_mic_vad(mic_path, *, cfg=None):
     trimmed, seg_map = vad.trim_silence(mic_path)
     if not trimmed:
         return transcribe(mic_path, diarize=True, force_speaker=cfg.your_name,
-                          label="your mic (full track)", hotwords=cfg.hotwords)
+                          label="your mic (full track)", hotwords=cfg.hotwords,
+                          language_code=cfg.language_code)
 
     try:
         import wave
@@ -559,7 +578,8 @@ def transcribe_mic_vad(mic_path, *, cfg=None):
               % vad.summarize(seg_map, orig_secs), file=sys.stderr)
 
         entries = transcribe(trimmed, diarize=True, force_speaker=cfg.your_name,
-                             label="your mic (VAD-trimmed)", hotwords=cfg.hotwords)
+                             label="your mic (VAD-trimmed)", hotwords=cfg.hotwords,
+                             language_code=cfg.language_code)
         for e in entries:
             e["t"] = round(vad.remap(e["t"], seg_map), 2)
         return entries

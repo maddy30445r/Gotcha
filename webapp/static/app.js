@@ -195,6 +195,30 @@ function classify(title, idx) {
   return ["summary", "decode", "actions", "questions"][idx] || "summary";
 }
 
+// Supported Sarvam language hints (must match server ALLOWED_LANGS). All code-mix
+// with English; "unknown" = auto-detect.
+const LANGS = [
+  ["unknown", "Auto-detect"], ["hi-IN", "Hindi"], ["ta-IN", "Tamil"],
+  ["te-IN", "Telugu"], ["mr-IN", "Marathi"], ["bn-IN", "Bengali"],
+  ["kn-IN", "Kannada"], ["gu-IN", "Gujarati"], ["pa-IN", "Punjabi"],
+  ["ml-IN", "Malayalam"],
+];
+function fillLangSelect(el, selected) {
+  if (!el) return;
+  el.innerHTML = LANGS.map(([code, label]) =>
+    `<option value="${code}"${code === (selected || "unknown") ? " selected" : ""}>${label}</option>`).join("");
+}
+
+// "We listened for these terms" — the glossary/hotwords Sarvam was biased toward,
+// shown for trust. Hidden when empty.
+function listenedForHTML(terms) {
+  terms = (terms || []).filter(Boolean);
+  if (!terms.length) return "";
+  const chips = terms.map((t) => `<span class="lf-chip">${esc(t)}</span>`).join("");
+  return `<div class="listened-for" title="Names &amp; terms we told the transcriber to listen for">
+      <span class="lf-label">🎧 Listened for</span>${chips}</div>`;
+}
+
 function renderReport(md) {
   const norm = md.replace(/\r\n/g, "\n")
     // Some models write "**1. Title**" instead of "### 1. Title" — normalize to H3.
@@ -354,6 +378,7 @@ async function openMeeting(base, quiet) {
   }
 
   if (m.report_md) {
+    html += listenedForHTML(m.listened_for);
     try { html += renderReport(m.report_md); }
     catch (_) { html += `<div class="report-fallback">${m.report_html || ""}</div>`; }
     html += `<div class="report-hr"></div>
@@ -703,6 +728,7 @@ async function finishUpload(processNow) {
   if (!sess) return;
   closePostRec();
   const glossary = ($("#post-glossary").value || "").trim();
+  const language = ($("#post-language") && $("#post-language").value) || "";
   recBtn.disabled = true;
 
   // The upload (two uncompressed WAVs) can take a while on long meetings. Show an
@@ -719,7 +745,7 @@ async function finishUpload(processNow) {
       serverUrl: serverUrl(), token: authToken(),
       name: DEFAULT_REC_NAME,
       systemPath: sess.system_path, micPath: sess.mic_path,
-      glossary, process: processNow,
+      glossary, language, process: processNow,
     });
   } catch (e) {
     toast("Upload failed: " + e, "err");
@@ -733,9 +759,12 @@ async function finishUpload(processNow) {
   if (serverBase) openMeeting(serverBase);
 }
 
-function openPostRec() {
+async function openPostRec() {
   const d = $("#postrec"); d.showModal ? d.showModal() : (d.hidden = false);
   loadGlossarySuggestions();
+  // Default the per-meeting language to the user's saved default.
+  if (!currentUser) { try { currentUser = await api("/api/auth/me"); } catch (_) {} }
+  fillLangSelect($("#post-language"), currentUser && currentUser.language_code);
 }
 function closePostRec() { const d = $("#postrec"); d.close ? d.close() : (d.hidden = true); }
 
@@ -852,7 +881,34 @@ function paintAccount() {
   const connected = !!u.has_desktop;
   const ca = $("#connect-app"); if (ca) ca.hidden = connected;
   const ds = $("#desktop-status"); if (ds) ds.hidden = !connected;
+  // Capture prefs (default language + saved glossary).
+  fillLangSelect($("#set-language"), u.language_code);
+  const gl = $("#set-glossary"); if (gl) gl.value = (u.glossary || []).join(", ");
 }
+
+// Persist default language immediately on change.
+const setLang = $("#set-language");
+if (setLang) setLang.onchange = async () => {
+  try {
+    const r = await api("/api/settings", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ language_code: setLang.value }) });
+    if (currentUser) currentUser.language_code = r.language_code;
+    toast("Language saved", "ok");
+  } catch (e) { toast("Couldn't save: " + e.message, "err"); }
+};
+// Save the curated glossary on demand.
+const setGlossSave = $("#set-glossary-save");
+if (setGlossSave) setGlossSave.onclick = async () => {
+  try {
+    const r = await api("/api/settings", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ glossary: $("#set-glossary").value }) });
+    if (currentUser) currentUser.glossary = r.glossary;
+    $("#set-glossary").value = (r.glossary || []).join(", ");
+    toast("Terms saved", "ok");
+  } catch (e) { toast("Couldn't save: " + e.message, "err"); }
+};
 const hasDesktop = () => !!(currentUser && currentUser.has_desktop);
 async function fillAccount() {
   try { currentUser = await api("/api/auth/me"); } catch (_) {}

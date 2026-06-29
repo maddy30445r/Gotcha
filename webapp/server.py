@@ -152,14 +152,25 @@ def _uid(user):
     return user["user_id"]
 
 
+# Sarvam language hints we expose (label → code). "unknown" = auto-detect; all are
+# code-mixed with English. Validated server-side so a bad value can't reach Sarvam.
+ALLOWED_LANGS = {
+    "unknown": "Auto-detect", "hi-IN": "Hindi", "ta-IN": "Tamil",
+    "te-IN": "Telugu", "mr-IN": "Marathi", "bn-IN": "Bengali",
+    "kn-IN": "Kannada", "gu-IN": "Gujarati", "pa-IN": "Punjabi",
+    "ml-IN": "Malayalam",
+}
+
+
 def _cfg_for(user):
-    """Build this user's per-run pipeline config (name + glossary + LLM)."""
+    """Build this user's per-run pipeline config (name + glossary + LLM + language)."""
     return pipeline.UserConfig(
         your_name=user.get("display_name", pipeline.DEFAULT_CONFIG.your_name),
         glossary=user.get("glossary", list(pipeline.DEFAULT_GLOSSARY)),
         hotwords=user.get("hotwords", list(pipeline.DEFAULT_HOTWORDS)),
         provider=user.get("provider", pipeline.DEFAULT_CONFIG.provider),
         model=user.get("model", pipeline.DEFAULT_CONFIG.model),
+        language_code=user.get("language_code", pipeline.DEFAULT_CONFIG.language_code),
     )
 
 
@@ -441,6 +452,12 @@ def _worker():
         if glossary:
             cfg.glossary = list(cfg.glossary) + list(glossary)
             cfg.hotwords = list(cfg.hotwords) + list(glossary)
+        # Per-meeting language override lives in meta (so /api/process resume gets it too).
+        meta_lang = _read_meta(user, base).get("language")
+        if meta_lang:
+            cfg.language_code = meta_lang
+        # Surface "we listened for these terms" in the report for trust.
+        _write_meta(user, base, listened_for=list(cfg.hotwords))
         try:
             # Re-check the cap at dequeue — a user can queue several uploads
             # before any of them bill, so the enqueue-time check isn't enough.
@@ -571,6 +588,35 @@ def auth_me(user=Depends(auth)):
         "used_min": round(_used_min(user), 1),
         "cap_min": _cap_min(user),
         "has_desktop": _has_desktop(user),
+        "tier": user.get("tier", "free"),
+        "language_code": user.get("language_code", "unknown"),
+        "glossary": user.get("glossary", []),
+    }
+
+
+@app.post("/api/settings")
+def update_settings(payload: dict = Body(...), user=Depends(auth)):
+    """Save per-user preferences: default language and the saved glossary
+    (the compounding term list). Both optional; only provided keys are written."""
+    fields = {}
+    if "language_code" in payload:
+        lang = (payload.get("language_code") or "unknown").strip()
+        if lang not in ALLOWED_LANGS:
+            raise HTTPException(400, "Unsupported language")
+        fields["language_code"] = lang
+    if "glossary" in payload:
+        raw = payload.get("glossary")
+        terms = raw if isinstance(raw, list) else _parse_glossary(raw or "")
+        seen, deduped = set(), []
+        for t in (x.strip() for x in terms if x and x.strip()):
+            if t.lower() not in seen:
+                seen.add(t.lower())
+                deduped.append(t)
+        fields["glossary"] = deduped[:authmod.GLOSSARY_CAP]
+    rec = authmod.update_user(_uid(user), **fields) if fields else user
+    return {
+        "language_code": rec.get("language_code", "unknown"),
+        "glossary": rec.get("glossary", []),
     }
 
 
@@ -962,6 +1008,7 @@ def get_meeting(base: str, user=Depends(auth)):
         "your_name": _cfg_for(user).your_name,
         "state": state["state"],
         "error": state["error"],
+        "listened_for": _read_meta(user, base).get("listened_for", []),
     }
 
 
@@ -1105,11 +1152,19 @@ def glossary_suggestions(user=Depends(auth)):
 async def upload(request: Request,
                  system: UploadFile = File(...), mic: UploadFile = File(...),
                  name: str = Form("meeting"), glossary: str = Form(""),
-                 process: str = Form("true"), user=Depends(auth)):
+                 language: str = Form(""), process: str = Form("true"),
+                 user=Depends(auth)):
     # Cheap abuse guard: cap uploads per account (heavy, paid work downstream).
     _rate_guard(f"upload:{_uid(user)}", limit=12, window=60)
     process_now = str(process).strip().lower() in ("1", "true", "yes", "on")
     terms = _parse_glossary(glossary)
+    # Per-meeting language override (ignored unless it's one we support).
+    lang = (language or "").strip()
+    lang = lang if lang in ALLOWED_LANGS and lang != "unknown" else None
+    # Compounding: remember deliberately-entered terms so future meetings bias for
+    # them automatically (deduped + capped in auth).
+    if terms:
+        authmod.add_user_glossary(_uid(user), terms)
 
     base = _new_base(user, name)
     system_path = _rec_path(user, base, ".system.wav")
@@ -1127,12 +1182,12 @@ async def upload(request: Request,
     over_cap = (_used_min(user) + billed_min > _cap_min(user)
                 or _global_over_cap(billed_min))
     if process_now and not over_cap:
-        _write_meta(user, base, glossary=terms, parked=False, name=name)
+        _write_meta(user, base, glossary=terms, language=lang, parked=False, name=name)
         _set_state(user, base, "queued")
         _work_q.put((user, base, system_path, mic_path, terms))
         state = "queued"
     else:
-        _write_meta(user, base, glossary=terms, parked=True, name=name)
+        _write_meta(user, base, glossary=terms, language=lang, parked=True, name=name)
         _set_state(user, base, "parked")
         state = "parked"
     # Return the resulting state so the client can confirm park-vs-process took.
