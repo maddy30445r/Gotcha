@@ -733,8 +733,37 @@ async function finishUpload(processNow) {
   if (serverBase) openMeeting(serverBase);
 }
 
-function openPostRec() { const d = $("#postrec"); d.showModal ? d.showModal() : (d.hidden = false); }
+function openPostRec() {
+  const d = $("#postrec"); d.showModal ? d.showModal() : (d.hidden = false);
+  loadGlossarySuggestions();
+}
 function closePostRec() { const d = $("#postrec"); d.close ? d.close() : (d.hidden = true); }
+
+// Mine the user's past transcripts for likely proper nouns and offer them as
+// one-tap chips that append into the glossary box (improves Hinglish accuracy).
+async function loadGlossarySuggestions() {
+  const box = $("#post-suggest");
+  if (!box) return;
+  box.hidden = true; box.innerHTML = "";
+  let terms = [];
+  try { terms = (await api("/api/glossary/suggestions")).terms || []; }
+  catch (_) { return; }
+  if (!terms.length) return;
+  box.innerHTML = `<span class="suggest-label">Suggested:</span>` +
+    terms.map((t) => `<button type="button" class="suggest-chip">${esc(t)}</button>`).join("");
+  box.querySelectorAll(".suggest-chip").forEach((btn) => {
+    btn.onclick = () => {
+      const ta = $("#post-glossary");
+      const cur = ta.value.trim();
+      const have = cur.split(/[\n,;]+/).map((s) => s.trim().toLowerCase());
+      if (!have.includes(btn.textContent.toLowerCase())) {
+        ta.value = cur ? cur + ", " + btn.textContent : btn.textContent;
+      }
+      btn.classList.add("added"); btn.disabled = true;
+    };
+  });
+  box.hidden = false;
+}
 
 async function decodeMeeting(base) {
   try { await api("/api/process/" + encodeURIComponent(base), { method: "POST" }); }

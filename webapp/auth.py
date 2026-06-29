@@ -99,7 +99,8 @@ def init_db():
             hotwords    TEXT,   -- JSON array
             provider    TEXT,
             model       TEXT,
-            api_token   TEXT UNIQUE
+            api_token   TEXT UNIQUE,
+            tier        TEXT DEFAULT 'free'
         )""")
         c.execute("""CREATE TABLE IF NOT EXISTS magic_links(
             token      TEXT PRIMARY KEY,
@@ -112,6 +113,12 @@ def init_db():
         # tell the web app whether a Mac app is connected). Idempotent on existing DBs.
         try:
             c.execute("ALTER TABLE users ADD COLUMN desktop_seen_at REAL")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        # Migration: billing tier (free|pro|team). Foundation for the paywall — no
+        # behavior gates on it yet; null/legacy rows read as "free". Idempotent.
+        try:
+            c.execute("ALTER TABLE users ADD COLUMN tier TEXT")
         except sqlite3.OperationalError:
             pass  # column already exists
 
@@ -127,6 +134,7 @@ def _row_to_record(r):
     }
     if "desktop_seen_at" in r.keys():
         rec["desktop_seen_at"] = r["desktop_seen_at"]
+    rec["tier"] = (r["tier"] if "tier" in r.keys() else None) or "free"
     if r["cap_minutes"] is not None:
         rec["cap_minutes"] = r["cap_minutes"]
     for k in ("glossary", "hotwords"):
@@ -196,9 +204,9 @@ def find_or_create_user(email, display_name=None):
     name = (display_name or email.split("@")[0]).strip() or uid
     with _write_lock, _conn() as c:
         c.execute(
-            "INSERT INTO users(user_id,email,display_name,created_at,cap_minutes,api_token)"
-            " VALUES(?,?,?,?,?,?)",
-            (uid, email, name, time.time(), FREE_CAP_MIN, _new_api_token()))
+            "INSERT INTO users(user_id,email,display_name,created_at,cap_minutes,api_token,tier)"
+            " VALUES(?,?,?,?,?,?,?)",
+            (uid, email, name, time.time(), FREE_CAP_MIN, _new_api_token(), "free"))
     return user_by_email(email), True
 
 
@@ -224,13 +232,14 @@ def migrate_users_json(users_file):
                 continue
             c.execute(
                 "INSERT OR IGNORE INTO users(user_id,email,display_name,created_at,"
-                "cap_minutes,glossary,hotwords,provider,model,api_token)"
-                " VALUES(?,?,?,?,?,?,?,?,?,?)",
+                "cap_minutes,glossary,hotwords,provider,model,api_token,tier)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 (uid, rec.get("email"), rec.get("display_name"), time.time(),
                  rec.get("cap_minutes"),
                  json.dumps(rec["glossary"]) if rec.get("glossary") else None,
                  json.dumps(rec["hotwords"]) if rec.get("hotwords") else None,
-                 rec.get("provider"), rec.get("model"), token))
+                 rec.get("provider"), rec.get("model"), token,
+                 rec.get("tier") or "free"))
             count += 1
     return count
 

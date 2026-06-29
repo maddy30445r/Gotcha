@@ -6,9 +6,11 @@ Plan: `~/.claude/plans/okay-so-what-can-majestic-frog.md`.
 ---
 
 ## ✅ Done in code (this session)
-- **Global spend backstop** — `GOTCHA_GLOBAL_DAILY_CAP_MIN` caps total *paid* Sarvam
+- **Global spend backstop** — `GOTCHA_GLOBAL_DAILY_CAP_MIN` caps total meeting **wall-clock**
   minutes/day across all users. Over the ceiling, meetings **park** (audio kept) instead of
   burning budget. Enforced in `webapp/server.py` upload, worker dequeue, and `/api/process`.
+  Billing/usage now counts wall-clock = `max(system, mic)` (was `system+mic`, ~2x over-count).
+  Sarvam still costs ~2x wall-clock, so set this var to ~HALF your raw Sarvam-minute budget.
 - **Rate limiting** — in-memory throttles on `/api/upload` (per account), `/api/request-access`
   and `/api/auth/email/start` (per IP + per email). Returns 429 when exceeded.
 - **Google-first sign-in** — `login.html` now nudges Google as the reliable path and warns that
@@ -49,7 +51,7 @@ GOTCHA_LLM_MODEL=claude-haiku-4-5
 
 ### 3. Set the budget backstop + confirm session secret
 ```
-GOTCHA_GLOBAL_DAILY_CAP_MIN=600     # ~$8/day max paid; tune to your comfort
+GOTCHA_GLOBAL_DAILY_CAP_MIN=300     # wall-clock min/day (~600 Sarvam min ≈ ~$8/day); tune to comfort
 GOTCHA_SESSION_SECRET=<stable random>   # else every restart logs everyone out
 ```
 Then redeploy: `cd ~/Gotcha/deploy && docker compose up -d --build`.

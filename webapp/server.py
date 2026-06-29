@@ -204,8 +204,11 @@ def _new_base(user, name):
 
 
 # ---------------------------------------------------------------------------
-# Usage ledger + cost cap (billed seconds = full system + full mic, a
-# conservative upper bound on what Sarvam charges since the mic is VAD-trimmed).
+# Usage ledger + cost cap (billed seconds = meeting wall-clock = max(system, mic),
+# since both tracks span the same window — summing them double-counts a meeting.
+# NOTE: Sarvam's actual cost is ~2x this (two jobs), so the global daily ceiling now
+# counts wall-clock minutes, not Sarvam minutes — set GOTCHA_GLOBAL_DAILY_CAP_MIN to
+# ~half the raw Sarvam-minute budget to keep the same spend protection.
 # ---------------------------------------------------------------------------
 _usage_lock = threading.Lock()
 
@@ -441,7 +444,7 @@ def _worker():
         try:
             # Re-check the cap at dequeue — a user can queue several uploads
             # before any of them bill, so the enqueue-time check isn't enough.
-            billed_min = (_wav_seconds(system_path) + _wav_seconds(mic_path)) / 60.0
+            billed_min = max(_wav_seconds(system_path), _wav_seconds(mic_path)) / 60.0
             if _used_min(user) + billed_min > _cap_min(user):
                 _set_state(user, base, "error", "Usage cap reached — not transcribed.")
                 continue
@@ -465,7 +468,7 @@ def _worker():
             with open(os.path.join(out_dir, f"{base}.transcript.json"), "w",
                       encoding="utf-8") as f:
                 json.dump(entries, f, ensure_ascii=False, indent=2)
-            billed_secs = _wav_seconds(system_path) + _wav_seconds(mic_path)
+            billed_secs = max(_wav_seconds(system_path), _wav_seconds(mic_path))
             _usage_add(user, billed_secs)
             _global_add(billed_secs)
 
@@ -1037,6 +1040,67 @@ def _parse_glossary(raw):
     return [p.strip() for p in re.split(r"[\n,;]+", raw) if p.strip()]
 
 
+# Capitalized sentence-starters / pronouns that look like proper nouns but aren't —
+# kept small on purpose; the ≥2-occurrence threshold filters most other noise.
+_GLOSSARY_STOPWORDS = {
+    "the", "this", "that", "these", "those", "we", "you", "they", "he", "she",
+    "it", "i", "and", "but", "so", "or", "if", "then", "yes", "no", "ok", "okay",
+    "what", "when", "where", "why", "how", "who", "there", "here", "now", "today",
+    "tomorrow", "yesterday", "actually", "basically", "right", "let", "lets",
+    "please", "thanks", "hello", "hi", "hey", "good", "morning", "team", "meeting",
+    "for", "of", "to", "in", "on", "at", "by", "is", "are", "was", "were", "be",
+    "will", "would", "should", "can", "could", "just", "also", "like", "get",
+    "got", "do", "does", "did", "done", "going", "make", "sure", "sir", "maybe",
+    "because", "after", "before", "only", "even", "much", "more", "some", "any",
+    "all", "one", "two", "three", "okhay", "haan", "nahi", "matlab", "abhi",
+}
+# Term candidates: ALL-CAPS acronyms (AML, BPAL, 3DS) or Capitalized words (Worldpay).
+_TERM_RE = re.compile(r"\b(?:[A-Z][a-zA-Z]+|[A-Z][A-Z0-9]{1,})\b")
+
+
+def _glossary_suggestions(user, limit=12):
+    """Mine the user's past transcripts for likely proper nouns / acronyms (terms
+    seen ≥2 times), excluding anything already in their glossary or the defaults.
+    Surfaced as one-tap chips so the next recording transcribes them accurately."""
+    # Words already covered — split each glossary/hotword entry into bare words so
+    # "Feather (PMS product)" excludes "Feather". Lower-cased for matching.
+    known = set(_GLOSSARY_STOPWORDS)
+    covered = (list(user.get("glossary") or pipeline.DEFAULT_GLOSSARY)
+               + list(user.get("hotwords") or pipeline.DEFAULT_HOTWORDS)
+               + list(pipeline.DEFAULT_GLOSSARY) + list(pipeline.DEFAULT_HOTWORDS))
+    for entry in covered:
+        for w in re.findall(r"[A-Za-z0-9]+", str(entry)):
+            known.add(w.lower())
+
+    counts = {}        # lower-cased surface → count
+    display = {}       # lower-cased surface → first-seen original casing
+    out_dir = _out_dir(user)
+    for fn in os.listdir(out_dir):
+        if not fn.endswith(".transcript.json"):
+            continue
+        try:
+            with open(os.path.join(out_dir, fn), encoding="utf-8") as f:
+                entries = json.load(f)
+        except Exception:
+            continue
+        for e in entries or []:
+            for tok in _TERM_RE.findall(str(e.get("text", ""))):
+                key = tok.lower()
+                if key in known or len(tok) < 2:
+                    continue
+                counts[key] = counts.get(key, 0) + 1
+                display.setdefault(key, tok)
+    ranked = sorted((k for k, n in counts.items() if n >= 2),
+                    key=lambda k: counts[k], reverse=True)
+    return [display[k] for k in ranked[:limit]]
+
+
+@app.get("/api/glossary/suggestions")
+def glossary_suggestions(user=Depends(auth)):
+    """Suggested glossary terms mined from this user's past transcripts."""
+    return {"terms": _glossary_suggestions(user)}
+
+
 @app.post("/api/upload")
 async def upload(request: Request,
                  system: UploadFile = File(...), mic: UploadFile = File(...),
@@ -1057,7 +1121,7 @@ async def upload(request: Request,
     # Parking just stores the audio (no paid work), so it's never blocked by cap;
     # and a "process now" that would bust the cap is parked instead of discarded,
     # so the user never loses a recording.
-    billed_min = (sys_secs + mic_secs) / 60.0
+    billed_min = max(sys_secs, mic_secs) / 60.0
     # Park (never discard) when over the user's cap OR when today's global ceiling
     # is reached — either way the audio is kept and can be processed later.
     over_cap = (_used_min(user) + billed_min > _cap_min(user)
